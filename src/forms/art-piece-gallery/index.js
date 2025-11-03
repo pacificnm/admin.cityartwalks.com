@@ -1,0 +1,3 @@
+/**
+ * @namespace CityArtWalks.Forms.ArtPieceGallery
+ */

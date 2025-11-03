@@ -1,0 +1,655 @@
+/**
+ * @namespace CityArtWalks.Components.Review.ReviewGuidelines
+ * @version 1.0.0
+ * @author Jaimie Garner
+ * @description Modal component displaying review writing guidelines and best practices
+ */
+
+'use client';
+
+import { useState } from 'react';
+import PropTypes from 'prop-types';
+
+import Box from '@mui/material/Box';
+import Chip from '@mui/material/Chip';
+import Card from '@mui/material/Card';
+import List from '@mui/material/List';
+import Alert from '@mui/material/Alert';
+import Stack from '@mui/material/Stack';
+import Button from '@mui/material/Button';
+import Dialog from '@mui/material/Dialog';
+import Rating from '@mui/material/Rating';
+import ListItem from '@mui/material/ListItem';
+import { useTheme } from '@mui/material/styles';
+import Accordion from '@mui/material/Accordion';
+import Typography from '@mui/material/Typography';
+import IconButton from '@mui/material/IconButton';
+import DialogTitle from '@mui/material/DialogTitle';
+import ListItemIcon from '@mui/material/ListItemIcon';
+import ListItemText from '@mui/material/ListItemText';
+import useMediaQuery from '@mui/material/useMediaQuery';
+import DialogContent from '@mui/material/DialogContent';
+import DialogActions from '@mui/material/DialogActions';
+import AccordionSummary from '@mui/material/AccordionSummary';
+import AccordionDetails from '@mui/material/AccordionDetails';
+
+import { Iconify } from 'src/components/iconify';
+import { EditIcon } from 'src/components/icons/edit-icon';
+import {
+  StarIcon,
+  CopyIcon,
+  CloseIcon,
+  CameraIcon,
+  UsersGroupIcon,
+  ChevronDownIcon,
+  ForbiddenCircleIcon,
+} from 'src/components/icons';
+
+import ReviewErrorBoundary from './review-error-boundary';
+
+/**
+ * Guidelines content data
+ */
+const GUIDELINES_DATA = {
+  dos: [
+    {
+      icon: 'solar:check-circle-bold',
+      title: 'Be Specific and Detailed',
+      description: 'Describe what you liked or disliked with specific examples.',
+      example: '"The vibrant blues in this mural really capture the ocean\'s essence."',
+    },
+    {
+      icon: 'solar:heart-bold',
+      title: 'Share Your Experience',
+      description: 'Tell others how the art made you feel or what it reminded you of.',
+      example:
+        '"This sculpture made me think about the relationship between nature and urban life."',
+    },
+    {
+      icon: <CameraIcon />,
+      title: 'Consider the Context',
+      description: 'Think about the setting, lighting, and surroundings.',
+      example: '"The way this piece interacts with the morning light is breathtaking."',
+    },
+    {
+      icon: <UsersGroupIcon />,
+      title: 'Be Respectful',
+      description: 'Remember that real artists created these works with passion.',
+      example:
+        '"While this style isn\'t my preference, I appreciate the technical skill involved."',
+    },
+    {
+      icon: <EditIcon />,
+      title: 'Use Clear Language',
+      description: 'Write in a way that others can easily understand.',
+      example: '"The brushwork is loose and expressive, creating dynamic movement."',
+    },
+  ],
+  donts: [
+    {
+      icon: CloseIcon,
+      title: "Don't Be Vague",
+      description: "Avoid generic comments that don't add value.",
+      example: 'Instead of "It\'s nice" try "The warm colors create a welcoming atmosphere."',
+    },
+    {
+      icon: 'solar:danger-triangle-bold',
+      title: 'Avoid Personal Attacks',
+      description: 'Focus on the artwork, not the artist personally.',
+      example: "Comment on technique and style, not the artist's character or background.",
+    },
+    {
+      icon: <ForbiddenCircleIcon />,
+      title: 'No Spam or Promotion',
+      description: "Don't use reviews for advertising or unrelated content.",
+      example: "Keep your review focused on the artwork you're reviewing.",
+    },
+    {
+      icon: <CopyIcon />,
+      title: "Don't Copy Others",
+      description: 'Write your own original thoughts and experiences.',
+      example: 'Share your unique perspective rather than echoing other reviews.',
+    },
+  ],
+  ratings: [
+    {
+      value: 5,
+      label: 'Outstanding',
+      description: 'Exceptional artwork that exceeds expectations',
+      color: 'success',
+      example: 'Masterful technique, profound impact, unforgettable experience',
+    },
+    {
+      value: 4,
+      label: 'Very Good',
+      description: 'High-quality work with strong artistic merit',
+      color: 'info',
+      example: 'Skillful execution, engaging content, memorable elements',
+    },
+    {
+      value: 3,
+      label: 'Good',
+      description: 'Solid artwork that meets expectations',
+      color: 'warning',
+      example: 'Competent work, some interesting aspects, generally pleasing',
+    },
+    {
+      value: 2,
+      label: 'Fair',
+      description: 'Below average with noticeable issues',
+      color: 'error',
+      example: 'Some technical problems, limited impact, room for improvement',
+    },
+    {
+      value: 1,
+      label: 'Poor',
+      description: 'Significant problems that detract from the experience',
+      color: 'error',
+      example: 'Major technical issues, poor execution, disappointing overall',
+    },
+  ],
+};
+
+/**
+ * @memberof CityArtWalks.Components.Review.ReviewGuidelines
+ * @function ReviewGuidelines
+ * @description Modal component that displays comprehensive guidelines for writing effective reviews.
+ * Includes best practices, examples, rating explanations, and community standards.
+ *
+ * @component
+ * @param {Object} props - The component props.
+ * @param {boolean} props.open - Whether the modal is open.
+ * @param {Function} props.onClose - Callback when modal should close.
+ * @param {string} [props.entityType] - Type of entity being reviewed for context.
+ * @param {Function} [props.onStartReview] - Callback to start writing a review.
+ * @param {string} [props.title='Review Writing Guidelines'] - Custom modal title.
+ * @param {boolean} [props.showStartButton=false] - Whether to show start review button.
+ * @param {Object} [props.sx] - Additional styling props.
+ * @returns {JSX.Element} The rendered ReviewGuidelines component.
+ */
+export function ReviewGuidelines({
+  open,
+  onClose,
+  entityType,
+  onStartReview,
+  title = 'Review Writing Guidelines',
+  showStartButton = false,
+  sx,
+  ...other
+}) {
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+
+  const [expandedSection, setExpandedSection] = useState('dos');
+
+  /**
+   * Get entity type display name
+   */
+  const getEntityTypeDisplayName = (type) => {
+    const typeMap = {
+      ARTIST: 'artist',
+      ART_PIECE: 'art piece',
+      IMAGE: 'image',
+      PATH: 'art path',
+      PATH_MAP: 'path map',
+    };
+    return typeMap[type] || 'artwork';
+  };
+
+  /**
+   * Handle accordion change
+   */
+  const handleAccordionChange = (panel) => (event, isExpanded) => {
+    setExpandedSection(isExpanded ? panel : false);
+  };
+
+  /**
+   * Handle start review button click
+   */
+  const handleStartReview = () => {
+    if (onStartReview) {
+      onStartReview();
+    }
+    onClose();
+  };
+
+  /**
+   * Render guideline item
+   */
+  const renderGuidelineItem = (item, type) => (
+    <ListItem
+      key={item.title}
+      sx={{
+        flexDirection: 'column',
+        alignItems: 'flex-start',
+        py: 2,
+        px: { xs: 2, sm: 3 },
+        border: '1px solid',
+        borderColor: 'grey.200',
+        borderRadius: 2,
+        mb: 2,
+        bgcolor: type === 'do' ? 'success.50' : 'error.50',
+      }}
+    >
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1, width: '100%' }}>
+        {typeof item.icon === 'string' ? (
+          <Iconify
+            icon={item.icon}
+            sx={{
+              color: type === 'do' ? 'success.main' : 'error.main',
+              fontSize: { xs: '1.25rem', sm: '1.5rem' },
+            }}
+          />
+        ) : (
+          <Box
+            sx={{
+              color: type === 'do' ? 'success.main' : 'error.main',
+              fontSize: { xs: '1.25rem', sm: '1.5rem' },
+              display: 'flex',
+              alignItems: 'center',
+            }}
+          >
+            {item.icon}
+          </Box>
+        )}
+        <Typography
+          variant="subtitle2"
+          sx={{
+            fontWeight: 600,
+            fontSize: { xs: '1rem', sm: '1.125rem' },
+          }}
+        >
+          {item.title}
+        </Typography>
+      </Box>
+
+      <Typography
+        variant="body2"
+        color="text.secondary"
+        sx={{
+          mb: 1,
+          fontSize: { xs: '0.875rem', sm: '0.875rem' },
+          lineHeight: 1.5,
+        }}
+      >
+        {item.description}
+      </Typography>
+
+      <Box
+        sx={{
+          p: 1.5,
+          bgcolor: 'background.paper',
+          borderRadius: 1,
+          border: '1px solid',
+          borderColor: 'grey.200',
+          width: '100%',
+        }}
+      >
+        <Typography
+          variant="caption"
+          sx={{
+            fontStyle: 'italic',
+            fontSize: { xs: '0.75rem', sm: '0.8rem' },
+            color: 'text.secondary',
+          }}
+        >
+          {item.example}
+        </Typography>
+      </Box>
+    </ListItem>
+  );
+
+  /**
+   * Render rating guide item
+   */
+  const renderRatingItem = (rating) => (
+    <Box
+      key={rating.value}
+      sx={{
+        p: { xs: 2, sm: 3 },
+        border: '1px solid',
+        borderColor: 'grey.200',
+        borderRadius: 2,
+        mb: 2,
+      }}
+    >
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 1 }}>
+        <Rating value={rating.value} readOnly size={isMobile ? 'medium' : 'large'} />
+        <Box>
+          <Typography
+            variant="h6"
+            sx={{
+              fontWeight: 600,
+              fontSize: { xs: '1.1rem', sm: '1.25rem' },
+            }}
+          >
+            {rating.label}
+          </Typography>
+          <Typography
+            variant="body2"
+            color="text.secondary"
+            sx={{ fontSize: { xs: '0.875rem', sm: '0.875rem' } }}
+          >
+            {rating.description}
+          </Typography>
+        </Box>
+      </Box>
+
+      <Typography
+        variant="caption"
+        sx={{
+          fontStyle: 'italic',
+          color: 'text.secondary',
+          fontSize: { xs: '0.75rem', sm: '0.8rem' },
+        }}
+      >
+        Example: {rating.example}
+      </Typography>
+    </Box>
+  );
+
+  return (
+    <ReviewErrorBoundary
+      name="ReviewGuidelines"
+      context="review_guidelines"
+      variant="inline"
+      title="Guidelines Error"
+      description="Unable to load the review guidelines."
+    >
+      <Dialog
+        open={open}
+        onClose={onClose}
+        maxWidth="md"
+        fullWidth
+        fullScreen={isMobile}
+        scroll="paper"
+        sx={{
+          '& .MuiDialog-paper': {
+            borderRadius: isMobile ? 0 : 2,
+            maxHeight: isMobile ? '100vh' : '90vh',
+          },
+          ...sx,
+        }}
+        {...other}
+      >
+        {/* Header */}
+        <DialogTitle
+          sx={{
+            p: { xs: 2, sm: 3 },
+            pb: { xs: 1, sm: 2 },
+            pr: { xs: 6, sm: 8 },
+          }}
+        >
+          <Box>
+            <Typography
+              variant="h5"
+              sx={{
+                fontWeight: 600,
+                fontSize: { xs: '1.25rem', sm: '1.5rem' },
+                mb: 0.5,
+              }}
+            >
+              {title}
+            </Typography>
+            <Typography
+              variant="body2"
+              color="text.secondary"
+              sx={{ fontSize: { xs: '0.875rem', sm: '0.875rem' } }}
+            >
+              {entityType
+                ? `Learn how to write helpful reviews for ${getEntityTypeDisplayName(entityType)}s`
+                : 'Learn how to write helpful and constructive reviews'}
+            </Typography>
+          </Box>
+
+          {/* Close Button */}
+          <IconButton
+            onClick={onClose}
+            sx={{
+              position: 'absolute',
+              right: { xs: 8, sm: 16 },
+              top: { xs: 8, sm: 16 },
+              color: 'grey.500',
+            }}
+            size={isMobile ? 'medium' : 'small'}
+          >
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
+
+        {/* Content */}
+        <DialogContent sx={{ p: 0 }}>
+          <Box sx={{ p: { xs: 2, sm: 3 } }}>
+            {/* Introduction */}
+            <Alert
+              severity="info"
+              sx={{
+                mb: 3,
+                '& .MuiAlert-message': {
+                  fontSize: { xs: '0.875rem', sm: '0.875rem' },
+                },
+              }}
+            >
+              Great reviews help other art enthusiasts discover amazing works and provide valuable
+              feedback to artists. Follow these guidelines to write reviews that are helpful,
+              respectful, and engaging.
+            </Alert>
+
+            {/* Guidelines Sections */}
+            <Stack spacing={2}>
+              {/* Do's Section */}
+              <Accordion
+                expanded={expandedSection === 'dos'}
+                onChange={handleAccordionChange('dos')}
+                defaultExpanded
+              >
+                <AccordionSummary expandIcon={<ChevronDownIcon />}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <Iconify icon="solar:check-circle-bold" sx={{ color: 'success.main' }} />
+                    <Typography
+                      variant="h6"
+                      sx={{
+                        fontWeight: 600,
+                        fontSize: { xs: '1.1rem', sm: '1.25rem' },
+                      }}
+                    >
+                      What to Do
+                    </Typography>
+                    <Chip
+                      label={GUIDELINES_DATA.dos.length}
+                      size="small"
+                      color="success"
+                      variant="outlined"
+                    />
+                  </Box>
+                </AccordionSummary>
+                <AccordionDetails sx={{ pt: 0 }}>
+                  <List sx={{ p: 0 }}>
+                    {GUIDELINES_DATA.dos.map((item) => renderGuidelineItem(item, 'do'))}
+                  </List>
+                </AccordionDetails>
+              </Accordion>
+
+              {/* Don'ts Section */}
+              <Accordion
+                expanded={expandedSection === 'donts'}
+                onChange={handleAccordionChange('donts')}
+              >
+                <AccordionSummary expandIcon={<ChevronDownIcon />}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <CloseIcon sx={{ color: 'error.main' }} />
+                    <Typography
+                      variant="h6"
+                      sx={{
+                        fontWeight: 600,
+                        fontSize: { xs: '1.1rem', sm: '1.25rem' },
+                      }}
+                    >
+                      What to Avoid
+                    </Typography>
+                    <Chip
+                      label={GUIDELINES_DATA.donts.length}
+                      size="small"
+                      color="error"
+                      variant="outlined"
+                    />
+                  </Box>
+                </AccordionSummary>
+                <AccordionDetails sx={{ pt: 0 }}>
+                  <List sx={{ p: 0 }}>
+                    {GUIDELINES_DATA.donts.map((item) => renderGuidelineItem(item, 'dont'))}
+                  </List>
+                </AccordionDetails>
+              </Accordion>
+
+              {/* Rating Guide Section */}
+              <Accordion
+                expanded={expandedSection === 'ratings'}
+                onChange={handleAccordionChange('ratings')}
+              >
+                <AccordionSummary expandIcon={<ChevronDownIcon />}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <StarIcon sx={{ color: 'warning.main' }} />
+                    <Typography
+                      variant="h6"
+                      sx={{
+                        fontWeight: 600,
+                        fontSize: { xs: '1.1rem', sm: '1.25rem' },
+                      }}
+                    >
+                      Rating Guide
+                    </Typography>
+                  </Box>
+                </AccordionSummary>
+                <AccordionDetails sx={{ pt: 0 }}>
+                  <Typography
+                    variant="body2"
+                    color="text.secondary"
+                    sx={{
+                      mb: 3,
+                      fontSize: { xs: '0.875rem', sm: '0.875rem' },
+                    }}
+                  >
+                    Use this guide to help you choose the most appropriate rating for your
+                    experience:
+                  </Typography>
+                  <Stack spacing={2}>{GUIDELINES_DATA.ratings.map(renderRatingItem)}</Stack>
+                </AccordionDetails>
+              </Accordion>
+
+              {/* Community Standards */}
+              <Card variant="outlined" sx={{ p: { xs: 2, sm: 3 } }}>
+                <Typography
+                  variant="h6"
+                  gutterBottom
+                  sx={{
+                    fontWeight: 600,
+                    fontSize: { xs: '1.1rem', sm: '1.25rem' },
+                  }}
+                >
+                  Community Standards
+                </Typography>
+                <Typography
+                  variant="body2"
+                  sx={{
+                    mb: 2,
+                    fontSize: { xs: '0.875rem', sm: '0.875rem' },
+                    lineHeight: 1.6,
+                  }}
+                >
+                  Reviews that violate our community standards may be removed. This includes:
+                </Typography>
+                <List dense>
+                  {[
+                    'Offensive language or personal attacks',
+                    'Spam, advertising, or promotional content',
+                    'Reviews unrelated to the artwork',
+                    'Duplicate or copied reviews',
+                    'False or misleading information',
+                  ].map((item, index) => (
+                    <ListItem key={index} sx={{ py: 0.5, px: 0 }}>
+                      <ListItemIcon sx={{ minWidth: 32 }}>
+                        <Iconify
+                          icon="solar:info-circle-bold"
+                          sx={{
+                            color: 'warning.main',
+                            fontSize: '1rem',
+                          }}
+                        />
+                      </ListItemIcon>
+                      <ListItemText
+                        primary={item}
+                        primaryTypographyProps={{
+                          variant: 'body2',
+                          fontSize: { xs: '0.875rem', sm: '0.875rem' },
+                        }}
+                      />
+                    </ListItem>
+                  ))}
+                </List>
+              </Card>
+            </Stack>
+          </Box>
+        </DialogContent>
+
+        {/* Actions */}
+        <DialogActions
+          sx={{
+            p: { xs: 2, sm: 3 },
+            pt: 1,
+            flexDirection: { xs: 'column', sm: 'row' },
+            gap: { xs: 1, sm: 0 },
+          }}
+        >
+          {showStartButton && onStartReview && (
+            <Button
+              onClick={handleStartReview}
+              variant="contained"
+              size={isMobile ? 'large' : 'medium'}
+              fullWidth={isMobile}
+              startIcon={<EditIcon size={20} />}
+              sx={{ order: { xs: 1, sm: 2 } }}
+            >
+              Start Writing Review
+            </Button>
+          )}
+
+          <Button
+            onClick={onClose}
+            variant={showStartButton ? 'outlined' : 'contained'}
+            size={isMobile ? 'large' : 'medium'}
+            fullWidth={isMobile}
+            sx={{
+              order: { xs: 2, sm: 1 },
+              mr: { xs: 0, sm: showStartButton ? 1 : 0 },
+            }}
+          >
+            {showStartButton ? 'Maybe Later' : 'Got It'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+    </ReviewErrorBoundary>
+  );
+}
+
+/**
+ * @memberof CityArtWalks.Components.Review.ReviewGuidelines
+ * @prop {boolean} open - Whether the modal is open. Required.
+ * @prop {Function} onClose - Callback when modal should close. Required.
+ * @prop {string} [entityType] - Type of entity being reviewed for context. Optional.
+ * @prop {Function} [onStartReview] - Callback to start writing a review. Optional.
+ * @prop {string} [title='Review Writing Guidelines'] - Custom modal title. Optional.
+ * @prop {boolean} [showStartButton=false] - Whether to show start review button. Optional.
+ * @prop {Object} [sx] - Additional styling props. Optional.
+ */
+ReviewGuidelines.propTypes = {
+  open: PropTypes.bool.isRequired,
+  onClose: PropTypes.func.isRequired,
+  entityType: PropTypes.oneOf(['ARTIST', 'ART_PIECE', 'IMAGE', 'PATH', 'PATH_MAP']),
+  onStartReview: PropTypes.func,
+  title: PropTypes.string,
+  showStartButton: PropTypes.bool,
+  sx: PropTypes.object,
+};
+
+export default ReviewGuidelines;

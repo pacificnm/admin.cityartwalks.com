@@ -1,0 +1,521 @@
+/**
+ * @namespace CityArtWalks.Components.Review.ReviewSuccessDialog
+ * @version 1.0.0
+ * @author Jaimie Garner
+ * @description Success confirmation dialog for review submissions with celebratory UI and next actions
+ */
+
+'use client';
+
+import PropTypes from 'prop-types';
+import { useState, useEffect, useCallback } from 'react';
+
+import Box from '@mui/material/Box';
+import Chip from '@mui/material/Chip';
+import Fade from '@mui/material/Fade';
+import Zoom from '@mui/material/Zoom';
+import Stack from '@mui/material/Stack';
+import Button from '@mui/material/Button';
+import Dialog from '@mui/material/Dialog';
+import Rating from '@mui/material/Rating';
+import { useTheme } from '@mui/material/styles';
+import Typography from '@mui/material/Typography';
+import IconButton from '@mui/material/IconButton';
+import useMediaQuery from '@mui/material/useMediaQuery';
+import DialogContent from '@mui/material/DialogContent';
+import DialogActions from '@mui/material/DialogActions';
+
+import { Iconify } from 'src/components/iconify';
+
+import ReviewErrorBoundary from './review-error-boundary';
+
+/**
+ * @memberof CityArtWalks.Components.Review.ReviewSuccessDialog
+ * @function ReviewSuccessDialog
+ * @description Success confirmation dialog that appears after successful review submission.
+ * Features celebratory animations, review summary, and actionable next steps.
+ *
+ * @component
+ * @param {Object} props - The component props.
+ * @param {boolean} props.open - Whether the dialog is open.
+ * @param {Function} props.onClose - Callback when dialog should close.
+ * @param {Object} props.review - The submitted review data.
+ * @param {string} props.entityType - Type of entity that was reviewed.
+ * @param {string} [props.entityName] - Name of the entity that was reviewed.
+ * @param {string} [props.action='create'] - Type of action performed (create/update).
+ * @param {Function} [props.onViewReview] - Callback to view the review.
+ * @param {Function} [props.onViewEntity] - Callback to view the entity.
+ * @param {Function} [props.onWriteAnother] - Callback to write another review.
+ * @param {Function} [props.onShareReview] - Callback to share the review.
+ * @param {boolean} [props.showActions=true] - Whether to show action buttons.
+ * @param {Object} [props.sx] - Additional styling props.
+ * @returns {JSX.Element} The rendered ReviewSuccessDialog component.
+ */
+export function ReviewSuccessDialog({
+  open,
+  onClose,
+  review,
+  entityType,
+  entityName,
+  action = 'create',
+  onViewReview,
+  onViewEntity,
+  onWriteAnother,
+  onShareReview,
+  showActions = true,
+  sx,
+  ...other
+}) {
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+
+  const [animationStep, setAnimationStep] = useState(0);
+
+  // Determine dialog content based on action
+  const isUpdate = action === 'update';
+  const title = isUpdate ? 'Review Updated!' : 'Review Submitted!';
+  const subtitle = isUpdate
+    ? 'Your review has been successfully updated.'
+    : 'Thank you for sharing your experience!';
+
+  /**
+   * Get entity type display name
+   */
+  const getEntityTypeDisplayName = useCallback((type) => {
+    const typeMap = {
+      ARTIST: 'Artist',
+      ART_PIECE: 'Art Piece',
+      IMAGE: 'Image',
+      PATH: 'Path',
+      PATH_MAP: 'Path Map',
+    };
+    return typeMap[type] || type;
+  }, []);
+
+  /**
+   * Get celebration icon based on rating
+   */
+  const getCelebrationIcon = useCallback((rating) => {
+    if (rating >= 5) return 'eva:star-fill';
+    if (rating >= 4) return 'eva:heart-fill';
+    if (rating >= 3) return 'eva:thumbs-up-fill';
+    return 'eva:checkmark-circle-2-fill';
+  }, []);
+
+  /**
+   * Get celebration color based on rating
+   */
+  const getCelebrationColor = useCallback((rating) => {
+    if (rating >= 5) return 'warning.main';
+    if (rating >= 4) return 'error.main';
+    if (rating >= 3) return 'success.main';
+    return 'primary.main';
+  }, []);
+
+  // Trigger celebration animation when dialog opens
+  useEffect(() => {
+    if (open) {
+      setAnimationStep(0);
+
+      const timer1 = setTimeout(() => setAnimationStep(1), 100);
+      const timer2 = setTimeout(() => setAnimationStep(2), 300);
+      const timer3 = setTimeout(() => setAnimationStep(3), 500);
+
+      return () => {
+        clearTimeout(timer1);
+        clearTimeout(timer2);
+        clearTimeout(timer3);
+      };
+    }
+    setAnimationStep(0);
+    return undefined;
+  }, [open]);
+
+  /**
+   * Handle action button clicks
+   */
+  const handleViewReview = useCallback(() => {
+    if (onViewReview) {
+      onViewReview(review);
+    }
+    onClose();
+  }, [onViewReview, review, onClose]);
+
+  const handleViewEntity = useCallback(() => {
+    if (onViewEntity) {
+      onViewEntity(entityType, review.entityId || review.artPieceId || review.artistId);
+    }
+    onClose();
+  }, [onViewEntity, entityType, review, onClose]);
+
+  const handleWriteAnother = useCallback(() => {
+    if (onWriteAnother) {
+      onWriteAnother();
+    }
+    onClose();
+  }, [onWriteAnother, onClose]);
+
+  const handleShareReview = useCallback(() => {
+    if (onShareReview) {
+      onShareReview(review);
+    }
+  }, [onShareReview, review]);
+
+  const handleClose = useCallback(() => {
+    onClose();
+  }, [onClose]);
+
+  if (!review) {
+    return null;
+  }
+
+  return (
+    <ReviewErrorBoundary
+      name="ReviewSuccessDialog"
+      context="review_success"
+      variant="inline"
+      title="Success Dialog Error"
+      description="Unable to display the success confirmation."
+    >
+      <Dialog
+        open={open}
+        onClose={handleClose}
+        maxWidth="sm"
+        fullWidth
+        fullScreen={isMobile}
+        sx={{
+          '& .MuiDialog-paper': {
+            borderRadius: isMobile ? 0 : 2,
+            maxHeight: isMobile ? '100vh' : '80vh',
+            overflow: 'hidden',
+          },
+          ...sx,
+        }}
+        {...other}
+      >
+        {/* Close Button */}
+        <IconButton
+          onClick={handleClose}
+          sx={{
+            position: 'absolute',
+            right: { xs: 8, sm: 12 },
+            top: { xs: 8, sm: 12 },
+            zIndex: 1,
+            bgcolor: 'background.paper',
+            '&:hover': {
+              bgcolor: 'grey.100',
+            },
+          }}
+          size={isMobile ? 'medium' : 'small'}
+        >
+          <Iconify icon="eva:close-fill" />
+        </IconButton>
+
+        {/* Celebration Header */}
+        <Box
+          sx={{
+            position: 'relative',
+            background: `linear-gradient(135deg, ${theme.palette.primary.main}20, ${theme.palette.secondary.main}20)`,
+            overflow: 'hidden',
+            pt: { xs: 6, sm: 4 },
+            pb: { xs: 3, sm: 2 },
+            px: { xs: 3, sm: 4 },
+          }}
+        >
+          {/* Celebration Icon */}
+          <Box sx={{ textAlign: 'center', mb: 2 }}>
+            <Zoom in={animationStep >= 1} timeout={300}>
+              <Box
+                sx={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  width: { xs: 64, sm: 80 },
+                  height: { xs: 64, sm: 80 },
+                  borderRadius: '50%',
+                  bgcolor: getCelebrationColor(review.rating),
+                  color: 'white',
+                  mb: 2,
+                  position: 'relative',
+                }}
+              >
+                <Iconify
+                  icon={getCelebrationIcon(review.rating)}
+                  sx={{ fontSize: { xs: '2rem', sm: '2.5rem' } }}
+                />
+
+                {/* Pulse animation ring */}
+                <Box
+                  sx={{
+                    position: 'absolute',
+                    width: '100%',
+                    height: '100%',
+                    borderRadius: '50%',
+                    border: `2px solid ${getCelebrationColor(review.rating)}`,
+                    animation: animationStep >= 2 ? 'pulse 2s infinite' : 'none',
+                    '@keyframes pulse': {
+                      '0%': {
+                        transform: 'scale(1)',
+                        opacity: 1,
+                      },
+                      '50%': {
+                        transform: 'scale(1.1)',
+                        opacity: 0.7,
+                      },
+                      '100%': {
+                        transform: 'scale(1.2)',
+                        opacity: 0,
+                      },
+                    },
+                  }}
+                />
+              </Box>
+            </Zoom>
+          </Box>
+
+          {/* Title */}
+          <Fade in={animationStep >= 2} timeout={400}>
+            <Box sx={{ textAlign: 'center' }}>
+              <Typography
+                variant="h5"
+                gutterBottom
+                sx={{
+                  fontWeight: 600,
+                  fontSize: { xs: '1.5rem', sm: '1.75rem' },
+                  color: 'primary.main',
+                }}
+              >
+                {title}
+              </Typography>
+
+              <Typography
+                variant="body1"
+                color="text.secondary"
+                sx={{
+                  fontSize: { xs: '0.875rem', sm: '1rem' },
+                  mb: 2,
+                }}
+              >
+                {subtitle}
+              </Typography>
+            </Box>
+          </Fade>
+        </Box>
+
+        {/* Review Summary */}
+        <DialogContent sx={{ pt: 2, pb: 1 }}>
+          <Fade in={animationStep >= 3} timeout={500}>
+            <Box>
+              {/* Entity Information */}
+              {entityName && (
+                <Box sx={{ mb: 3, textAlign: 'center' }}>
+                  <Chip
+                    label={`${getEntityTypeDisplayName(entityType)}: ${entityName}`}
+                    variant="outlined"
+                    color="primary"
+                    sx={{
+                      fontSize: { xs: '0.8rem', sm: '0.875rem' },
+                      height: { xs: 28, sm: 32 },
+                    }}
+                  />
+                </Box>
+              )}
+
+              {/* Review Summary Card */}
+              <Box
+                sx={{
+                  border: '1px solid',
+                  borderColor: 'grey.200',
+                  borderRadius: 2,
+                  p: { xs: 2, sm: 3 },
+                  bgcolor: 'grey.50',
+                  mb: 3,
+                }}
+              >
+                <Stack spacing={2}>
+                  {/* Rating */}
+                  <Box
+                    sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1 }}
+                  >
+                    <Rating
+                      value={review.rating}
+                      readOnly
+                      size={isMobile ? 'medium' : 'large'}
+                      precision={1}
+                    />
+                    <Typography
+                      variant="h6"
+                      sx={{
+                        fontWeight: 600,
+                        fontSize: { xs: '1.1rem', sm: '1.25rem' },
+                      }}
+                    >
+                      {review.rating}/5
+                    </Typography>
+                  </Box>
+
+                  {/* Comment Preview */}
+                  {review.comment && (
+                    <Box>
+                      <Typography
+                        variant="body2"
+                        sx={{
+                          fontStyle: 'italic',
+                          textAlign: 'center',
+                          color: 'text.secondary',
+                          fontSize: { xs: '0.875rem', sm: '0.875rem' },
+                          lineHeight: 1.5,
+                          maxHeight: '4.5em',
+                          overflow: 'hidden',
+                          display: '-webkit-box',
+                          WebkitLineClamp: 3,
+                          WebkitBoxOrient: 'vertical',
+                        }}
+                      >
+                        &quot;{review.comment}&quot;
+                      </Typography>
+                    </Box>
+                  )}
+                </Stack>
+              </Box>
+
+              {/* Success Message */}
+              <Box sx={{ textAlign: 'center', mb: 2 }}>
+                <Typography
+                  variant="body2"
+                  color="text.secondary"
+                  sx={{ fontSize: { xs: '0.875rem', sm: '0.875rem' } }}
+                >
+                  {isUpdate
+                    ? 'Your updated review is now live and visible to other users.'
+                    : 'Your review is now live and will help others discover great art!'}
+                </Typography>
+              </Box>
+            </Box>
+          </Fade>
+        </DialogContent>
+
+        {/* Action Buttons */}
+        {showActions && (
+          <DialogActions
+            sx={{
+              p: { xs: 2, sm: 3 },
+              pt: 1,
+              flexDirection: { xs: 'column', sm: 'row' },
+              gap: { xs: 1, sm: 0 },
+            }}
+          >
+            <Stack
+              direction={{ xs: 'column', sm: 'row' }}
+              spacing={1}
+              sx={{ width: { xs: '100%', sm: 'auto' } }}
+            >
+              {/* Secondary Actions */}
+              {onViewEntity && (
+                <Button
+                  onClick={handleViewEntity}
+                  variant="outlined"
+                  size={isMobile ? 'large' : 'medium'}
+                  fullWidth={isMobile}
+                  startIcon={<Iconify icon="eva:eye-fill" />}
+                >
+                  View {getEntityTypeDisplayName(entityType)}
+                </Button>
+              )}
+
+              {onShareReview && (
+                <Button
+                  onClick={handleShareReview}
+                  variant="outlined"
+                  size={isMobile ? 'large' : 'medium'}
+                  fullWidth={isMobile}
+                  startIcon={<Iconify icon="eva:share-fill" />}
+                >
+                  Share Review
+                </Button>
+              )}
+
+              {/* Primary Actions */}
+              {onWriteAnother && !isUpdate && (
+                <Button
+                  onClick={handleWriteAnother}
+                  variant="contained"
+                  size={isMobile ? 'large' : 'medium'}
+                  fullWidth={isMobile}
+                  startIcon={<Iconify icon="eva:plus-fill" />}
+                >
+                  Write Another
+                </Button>
+              )}
+
+              {onViewReview && (
+                <Button
+                  onClick={handleViewReview}
+                  variant="contained"
+                  size={isMobile ? 'large' : 'medium'}
+                  fullWidth={isMobile}
+                  startIcon={<Iconify icon="eva:eye-fill" />}
+                >
+                  View Review
+                </Button>
+              )}
+            </Stack>
+
+            {/* Close Button */}
+            <Button
+              onClick={handleClose}
+              variant="text"
+              size={isMobile ? 'large' : 'medium'}
+              fullWidth={isMobile}
+              sx={{
+                mt: { xs: 1, sm: 0 },
+                ml: { xs: 0, sm: 'auto' },
+              }}
+            >
+              Close
+            </Button>
+          </DialogActions>
+        )}
+      </Dialog>
+    </ReviewErrorBoundary>
+  );
+}
+
+/**
+ * @memberof CityArtWalks.Components.Review.ReviewSuccessDialog
+ * @prop {boolean} open - Whether the dialog is open. Required.
+ * @prop {Function} onClose - Callback when dialog should close. Required.
+ * @prop {Object} review - The submitted review data. Required.
+ * @prop {string} entityType - Type of entity that was reviewed. Required.
+ * @prop {string} [entityName] - Name of the entity that was reviewed. Optional.
+ * @prop {string} [action='create'] - Type of action performed (create/update). Optional.
+ * @prop {Function} [onViewReview] - Callback to view the review. Optional.
+ * @prop {Function} [onViewEntity] - Callback to view the entity. Optional.
+ * @prop {Function} [onWriteAnother] - Callback to write another review. Optional.
+ * @prop {Function} [onShareReview] - Callback to share the review. Optional.
+ * @prop {boolean} [showActions=true] - Whether to show action buttons. Optional.
+ * @prop {Object} [sx] - Additional styling props. Optional.
+ */
+ReviewSuccessDialog.propTypes = {
+  open: PropTypes.bool.isRequired,
+  onClose: PropTypes.func.isRequired,
+  review: PropTypes.shape({
+    reviewId: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+    rating: PropTypes.number.isRequired,
+    comment: PropTypes.string,
+    entityId: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+    artPieceId: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+    artistId: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+  }).isRequired,
+  entityType: PropTypes.oneOf(['ARTIST', 'ART_PIECE', 'IMAGE', 'PATH', 'PATH_MAP']).isRequired,
+  entityName: PropTypes.string,
+  action: PropTypes.oneOf(['create', 'update']),
+  onViewReview: PropTypes.func,
+  onViewEntity: PropTypes.func,
+  onWriteAnother: PropTypes.func,
+  onShareReview: PropTypes.func,
+  showActions: PropTypes.bool,
+  sx: PropTypes.object,
+};
+
+export default ReviewSuccessDialog;
