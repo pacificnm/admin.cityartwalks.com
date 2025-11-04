@@ -66,17 +66,17 @@ export function ElementState(props) {
 
   // Create a custom hook call that conditionally fetches
   const statesFetchResult = useGetPaginatedStates(
-    shouldFetchStates ? { countryId: effectiveCountryId } : {}, // Pass countryId only when valid
-    1, // page
-    100, // rowsPerPage - get all states for the country
-    '', // Use empty token for public endpoint
+    shouldFetchStates ? { countryId: effectiveCountryId, page: 1, limit: 500 } : { page: 1, limit: 500 },
     600 // revalidate seconds
   );
 
   // Extract results, but only use them if we should fetch states
-  const { states, statesLoading, statesError } = shouldFetchStates
+  const { results, statesLoading, statesError } = shouldFetchStates
     ? statesFetchResult
-    : { states: [], statesLoading: false, statesError: null };
+    : { results: { data: [] }, statesLoading: false, statesError: null };
+
+  // Extract states from results
+  const states = results?.data || [];
 
   // Handle loading and error states
   if (statesLoading) {

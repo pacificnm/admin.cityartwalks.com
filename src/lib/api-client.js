@@ -74,6 +74,8 @@ export class ApiClient {
    */
   constructor(baseUrl = null) {
     this.baseUrl = baseUrl || ApiClient.BASE_URL;
+    this.cachedToken = null;
+    this.tokenExpiry = 0;
   }
 
   /**
@@ -97,18 +99,41 @@ export class ApiClient {
   }
 
   /**
+   * Force clear the cached token and fetch a new one from Auth0.
+   * Used when token refresh is needed due to 401 response or manual invalidation.
+   * 
+   * @private
+   * @returns {Promise<string|null>} Fresh access token or null if unavailable
+   */
+  async refreshAccessToken() {
+    // Clear cached token to force fresh fetch
+    this.cachedToken = null;
+    this.tokenExpiry = 0;
+    return this.getAccessToken();
+  }
+
+  /**
    * Get the current access token from the Auth0 session.
    * This method fetches the token from the /api/auth/token endpoint which
-   * retrieves it securely from the user's session.
+   * retrieves it securely from the user's session. Tokens are cached until
+   * they approach expiration (60-second buffer).
    * 
    * @private
    * @returns {Promise<string|null>} Access token or null if not available
    */
   async getAccessToken() {
     try {
+      // Return cached token if still valid (with 60-second buffer)
+      if (this.cachedToken && Date.now() < this.tokenExpiry - 60000) {
+        return this.cachedToken;
+      }
+
       const response = await fetch('/api/auth/token');
       if (response.ok) {
         const data = await response.json();
+        // Cache token with expiration time (convert from seconds to milliseconds)
+        this.cachedToken = data.accessToken;
+        this.tokenExpiry = data.expiresAt ? data.expiresAt * 1000 : Date.now() + 3600000; // Fallback to 1 hour
         return data.accessToken;
       }
       debugWarn('CityArtWalks.Lib.ApiClient.ApiClient', 'Failed to get access token', {
@@ -127,6 +152,9 @@ export class ApiClient {
    * Provides centralized HTTP request handling with automatic error processing, token management from session,
    * and Next.js ISR integration. Supports both JSON and FormData payloads with appropriate
    * content-type handling and automatic authentication integration.
+   * 
+   * Handles token expiration by detecting 401 responses, attempting a token refresh,
+   * and retrying the request with a fresh token.
    *
    * @method request
    * @memberof CityArtWalks.Lib.ApiClient.ApiClient
@@ -164,6 +192,7 @@ export class ApiClient {
    * @param {Object|FormData|string} [options.body] - Request body (auto-stringified for JSON)
    * @param {Object} [options.headers={}] - Additional headers to include
    * @param {Object} [options.next] - ISR config object: { revalidate: number }
+   * @param {boolean} [options._isRetry=false] - Internal flag to prevent infinite retry loops
    * @returns {Promise<any>} Parsed JSON response from the API or text for non-JSON responses
    * @throws {Error} Throws error with status, response, and data properties if request fails
    */
@@ -173,6 +202,7 @@ export class ApiClient {
       body,
       headers = {},
       next, // ISR config: { revalidate: number }
+      _isRetry = false, // Internal flag to prevent infinite retry loops
       ...rest // other fetch options
     } = options;
 
@@ -211,6 +241,40 @@ export class ApiClient {
         : `${this.baseUrl}${normalizedPath.startsWith('/') ? normalizedPath : `/${normalizedPath}`}`;
 
       const response = await fetch(url, fetchOptions);
+
+      // Handle 401 (Unauthorized) - token may have expired, attempt refresh
+      if (response.status === 401 && !_isRetry) {
+        debugWarn('CityArtWalks.Lib.ApiClient.ApiClient', 'Received 401 Unauthorized - attempting token refresh', {
+          path,
+          method,
+        });
+
+        // Force refresh the token
+        const freshToken = await this.refreshAccessToken();
+        
+        if (freshToken) {
+          // Retry the request with the fresh token
+          debugWarn('CityArtWalks.Lib.ApiClient.ApiClient', 'Token refreshed, retrying request', {
+            path,
+            method,
+          });
+          
+          return this.request(path, { ...options, _isRetry: true });
+        } else {
+          // Token refresh failed - session is likely invalid
+          debugError('CityArtWalks.Lib.ApiClient.ApiClient', 'Failed to refresh token after 401 - session may be invalid', {
+            path,
+            method,
+          });
+          
+          // Dispatch event to notify auth state (listeners can redirect to login)
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('auth:session-expired', {
+              detail: { path, message: 'Your session has expired. Please log in again.' }
+            }));
+          }
+        }
+      }
 
       if (!response.ok) {
         // Try to parse JSON error response

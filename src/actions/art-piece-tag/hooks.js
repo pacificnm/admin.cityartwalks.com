@@ -1,386 +1,324 @@
 /**
- * React hooks for ArtPieceTag operations using SWR
- *
- * This module provides React hooks for art piece tag CRUD operations with SWR caching,
- * IndexedDB fallback, and automatic cache invalidation. All hooks delegate to
- * requests functions and provide consistent loading/error states.
- *
- * Art piece tags are simple name/description entities used to categorize art pieces.
- * They do not have slug fields and use basic integer ID identification.
- *
- * @namespace CityArtWalks.Actions.ArtPieceTag.Hooks
- * @fileoverview React hooks for art piece tag data operations
+ * @file hooks.js
+ * @description SWR-based data fetching hooks for ArtPieceTags.
  * @author Jaimie Garner
- * @version 3.0.0
- *
- * @requires useSWR - SWR library for data fetching
- * @requires React - React hooks (useMemo, useEffect)
- * @requires CityArtWalks.Lib.Debug - Debug logging utilities
- * @requires CityArtWalks.Lib.IndexedDB - IndexedDB caching utilities
- *
+ * @version 2.1.0
+ * @namespace CityArtWalks.Actions.ArtPieceTag.Hooks
+ * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions} - Complete documentation
  * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Hooks} - Hooks documentation
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions} - Actions layer documentation
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Requests} - Requests patterns documentation
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Art-Piece-Tag-Model} - ArtPieceTag model documentation
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Schema#ArtPieceTag} - Database schema reference
+ * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/ArtPieceTag} - ArtPieceTag entity documentation
  */
 
-import useSWR, { useSWRConfig } from 'swr';
-import { useMemo, useEffect } from 'react';
+import { useMemo, useEffect } from "react";
 
-import { debugLog, debugWarn } from 'src/lib/debug';
-import { saveToIndexedDb, loadFromIndexedDb, buildCacheKeyFromSWRKey } from 'src/lib/indexDb';
+import { useBaseHook } from "src/lib/base-hook";
+import {
+  artPieceTagQuerySchema,
+  createArtPieceTagSchema,
+  updateArtPieceTagSchema,
+} from "src/validators/art-piece-tag";
 
-import * as requests from './requests.js';
+import { ArtPieceTagApiClient } from "./requests";
 
-const swrOptions = {
-  revalidateIfStale: false,
-  revalidateOnFocus: false,
-  revalidateOnReconnect: false,
-  keepPreviousData: true,
-};
+// Create a single instance to use across all hooks
+const artPieceTagApiClient = new ArtPieceTagApiClient();
 
 /**
- * SWR hook for paginated art piece tags with IndexedDB caching support
- *
  * @memberof CityArtWalks.Actions.ArtPieceTag.Hooks
  * @function useGetPaginatedArtPieceTags
- * @param {Object} [filters={}] - Filter parameters object
- * @param {string} [filters.search=''] - Search term for name/description fields
- * @param {string} [filters.active=''] - Active status filter (true/false)
- * @param {string} [filters.createdBy=''] - Creator user ID filter
- * @param {number} [page=1] - Page number for pagination
- * @param {number} [rowsPerPage=10] - Number of items per page
- * @param {string} [token=''] - Auth token for authorization
- * @param {number} [revalidate=600] - Revalidate interval in seconds
- * @param {*} [refreshKey] - Key to trigger manual refresh
- * @returns {Object} Paginated art piece tags result with IndexedDB caching
- * @returns {Array} returns.artPieceTags - Array of art piece tag objects
- * @returns {Object} returns.paginationMeta - Pagination metadata
- * @returns {boolean} returns.artPieceTagsLoading - Loading state
- * @returns {Error} returns.artPieceTagsError - Error state
- * @returns {boolean} returns.artPieceTagsEmpty - Empty state
- * @returns {Function} returns.mutate - SWR mutate function
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Hooks} - Hooks documentation
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions} - Actions layer documentation
+ * @description Hook to get paginated art piece tags with full filtering, caching via IndexedDB.
+ *
+ * @param {Object} params - Filter parameters
+ * @param {number} [params.page=1] - Page number
+ * @param {number} [params.limit=10] - Results per page limit
+ * @param {string} [params.search=''] - Search term
+ * @param {string} [params.active] - Active status filter
+ * @param {string} [params.createdBy] - Creator user ID filter
+ * @param {string|null} [params.refreshKey=null] - Key to trigger refresh
+ * @param {number} [revalidate=600] - Optional ISR revalidate time in seconds
+ * @returns {Object} Result including loading states, errors, and complete API results
+ * @returns {Object} result.results - Complete API results object (data, pagination, performance, query metadata)
+ * @returns {boolean} result.artPieceTagsLoading - Loading state
+ * @returns {Error} result.artPieceTagsError - Error state
+ * @returns {boolean} result.artPieceTagsValidating - Validation state
+ * @returns {boolean} result.artPieceTagsEmpty - Empty state (no data)
+ * @returns {Function} result.mutate - SWR mutate function
+ * @throws {Error} When parameter validation fails
+ * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions} - Complete documentation
  */
-export function useGetPaginatedArtPieceTags(
-  filters = {},
-  page = 1,
-  rowsPerPage = 10,
-  token = '',
-  revalidate = 600,
-  refreshKey
-) {
-  const { search = '', active = '', createdBy = '' } = filters;
-  const revalidateMs = revalidate * 1000;
+export function useGetPaginatedArtPieceTags(params = {}, revalidate = 600) {
+  const baseHook = useBaseHook("CityArtWalks.Actions.ArtPieceTag.Hooks");
 
-  const { swrKey, cacheKey } = useMemo(() => {
+  const {
+    page = 1,
+    limit = 10,
+    search = "",
+    active,
+    createdBy,
+    refreshKey = null,
+  } = params;
+
+  // Validate parameters using Zod schema
+  const validationResult = useMemo(
+    () =>
+      baseHook.validators.validateWithSchema(
+        { page, limit, search, active, createdBy },
+        artPieceTagQuerySchema,
+        "useGetPaginatedArtPieceTags"
+      ),
+    [baseHook.validators, page, limit, search, active, createdBy]
+  );
+
+  const { swrKey } = useMemo(() => {
+    if (!validationResult.success) {
+      return { swrKey: null };
+    }
+
     const key = [
-      'getPaginatedArtPieceTags',
+      "getPaginatedArtPieceTags",
+      page,
+      limit,
       search,
       active,
       createdBy,
-      page,
-      rowsPerPage,
       revalidate,
     ];
-    return {
-      swrKey: key,
-      cacheKey: buildCacheKeyFromSWRKey(key),
-    };
-  }, [search, active, createdBy, page, rowsPerPage, revalidate]);
+    return baseHook.utils.generateKeys(key);
+  }, [
+    baseHook.utils,
+    validationResult.success,
+    page,
+    limit,
+    search,
+    active,
+    createdBy,
+    revalidate,
+  ]);
 
-  const { data, isLoading, error, mutate } = useSWR(
-    swrKey,
-    async () => {
-      const response = await requests.getPaginatedArtPieceTags(
-        page,
-        rowsPerPage,
-        filters,
-        token,
-        revalidate
-      );
-      if (response && cacheKey) {
-        await saveToIndexedDb(cacheKey, response);
-        debugLog(`[IndexedDB] Saved data for ${cacheKey}`);
-      }
-      return response;
-    },
-    swrOptions
-  );
+  const { data, isLoading, error, isValidating, mutate } =
+    baseHook.useSWRWithCache(
+      swrKey,
+      async () => {
+        const response = await artPieceTagApiClient.getPaginatedArtPieceTags(
+          { page, limit, search, active, createdBy },
+          revalidate
+        );
+        return response;
+      },
+      revalidate
+    );
 
-  // IndexedDB fallback loading
-  useEffect(() => {
-    if (!cacheKey || !mutate) return;
-    (async () => {
-      try {
-        const cached = await loadFromIndexedDb(cacheKey, revalidateMs);
-        if (cached) {
-          debugLog(`[IndexedDB] Cache hit for ${cacheKey}`);
-          mutate(cached, false);
-        }
-      } catch (cacheError) {
-        debugWarn(`[IndexedDB] Error loading cache for ${cacheKey}:`, cacheError);
-      }
-    })();
-  }, [cacheKey, mutate, revalidateMs]);
-
-  // Manual refresh trigger
   useEffect(() => {
     if (refreshKey) mutate();
   }, [refreshKey, mutate]);
 
-  return useMemo(
-    () => ({
-      artPieceTags: data?.data?.artPieceTags || [],
-      paginationMeta: data?.data?.meta || {
-        total: 0,
-        page: 1,
-        rowsPerPage: 10,
-        totalPages: 0,
-      },
+  return useMemo(() => {
+    const results = data?.results || {};
+    return {
+      results, // Complete API results object with data, pagination, performance, etc.
       artPieceTagsLoading: isLoading,
       artPieceTagsError: error,
-      artPieceTagsEmpty:
-        !isLoading && (!data?.data?.artPieceTags || data?.data?.artPieceTags.length === 0),
+      artPieceTagsValidating: isValidating,
+      artPieceTagsEmpty: !isLoading && (!results.data || results.data.length === 0),
       mutate,
-    }),
-    [data, isLoading, error, mutate]
-  );
+    };
+  }, [data, isLoading, error, isValidating, mutate]);
 }
 
 /**
- * SWR hook for fetching a single art piece tag by ID with IndexedDB caching
- *
  * @memberof CityArtWalks.Actions.ArtPieceTag.Hooks
- * @function useGetArtPieceTagById
- * @param {string|number} id - The unique identifier of the art piece tag
- * @param {string} [token=''] - Optional Bearer token for authorization
- * @param {number} [revalidate=600] - Revalidate interval in seconds
- * @returns {Object} Art piece tag data with loading and error states
- * @returns {Object} returns.artPieceTag - Art piece tag object or null
- * @returns {boolean} returns.artPieceTagLoading - Loading state
- * @returns {Error} returns.artPieceTagError - Error state
- * @returns {boolean} returns.artPieceTagValidating - Revalidation state
- * @returns {boolean} returns.artPieceTagEmpty - Empty state
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Hooks} - Hooks documentation
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions} - Actions layer documentation
+ * @function useGetArtPieceTag
+ * @description Hook to get art piece tag by ID with IndexedDB caching.
+ *
+ * @param {string|number} artPieceTagId - The art piece tag ID
+ * @param {number} [revalidate=600] - Optional ISR revalidate time in seconds
+ * @returns {Object} Result including loading states, errors, and tag data
+ * @throws {Error} When artPieceTagId is invalid or API request fails
+ * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions} - Complete documentation
  */
-export function useGetArtPieceTagById(id, token = '', revalidate = 600) {
-  const revalidateMs = revalidate * 1000;
+export function useGetArtPieceTag(artPieceTagId, revalidate = 600) {
+  const baseHook = useBaseHook("CityArtWalks.Actions.ArtPieceTag.Hooks");
 
-  const { swrKey, cacheKey } = useMemo(() => {
-    if (!id) return { swrKey: null, cacheKey: null };
-    const key = ['getArtPieceTagById', id, revalidate];
-    return {
-      swrKey: key,
-      cacheKey: buildCacheKeyFromSWRKey(key),
-    };
-  }, [id, revalidate]);
-
-  const { data, isLoading, error, isValidating, mutate } = useSWR(
-    swrKey,
-    async () => {
-      const response = await requests.getArtPieceTagById(id, token, revalidate);
-      if (response && cacheKey) {
-        await saveToIndexedDb(cacheKey, response);
-        debugLog(`[IndexedDB] Saved data for ${cacheKey}`);
-      }
-      return response;
-    },
-    swrOptions
-  );
-
-  // IndexedDB fallback loading
+  // Validate artPieceTagId parameter
   useEffect(() => {
-    if (!cacheKey || !mutate) return;
-    (async () => {
-      try {
-        const cached = await loadFromIndexedDb(cacheKey, revalidateMs);
-        if (cached) {
-          debugLog(`[IndexedDB] Cache hit for ${cacheKey}`);
-          mutate(cached, false);
-        }
-      } catch (cacheError) {
-        debugWarn(`[IndexedDB] Error loading cache for ${cacheKey}:`, cacheError);
-      }
-    })();
-  }, [cacheKey, mutate, revalidateMs]);
+    if (
+      artPieceTagId &&
+      !baseHook.validators.validateWithSchema(
+        ["string", "number"],
+        artPieceTagId,
+        "artPieceTagId",
+        "useGetArtPieceTag"
+      )
+    ) {
+      // Validation handled by base hook
+    }
+  }, [baseHook.validators, artPieceTagId]);
 
-  return useMemo(
-    () => ({
-      artPieceTag: data?.data || null,
+  const { swrKey } = useMemo(() => {
+    if (!artPieceTagId) return { swrKey: null };
+    const key = ["getArtPieceTag", artPieceTagId, revalidate];
+    return baseHook.utils.generateKeys(key);
+  }, [baseHook.utils, artPieceTagId, revalidate]);
+
+  const { data, isLoading, error, isValidating, mutate } =
+    baseHook.useSWRWithCache(
+      swrKey,
+      async () => {
+        const response = await artPieceTagApiClient.getArtPieceTag(artPieceTagId, revalidate);
+        return response;
+      },
+      revalidate
+    );
+
+  return useMemo(() => {
+    const artPieceTag = data?.results?.data || null;
+    return {
+      artPieceTag,
       artPieceTagLoading: isLoading,
       artPieceTagError: error,
       artPieceTagValidating: isValidating,
-      artPieceTagEmpty: !isLoading && !data?.data,
-    }),
-    [data, isLoading, error, isValidating]
+      artPieceTagEmpty: !isLoading && !artPieceTag,
+      mutate,
+    };
+  }, [data, isLoading, error, isValidating, mutate]);
+}
+
+/**
+ * @memberof CityArtWalks.Actions.ArtPieceTag.Hooks
+ * @function useCreateArtPieceTag
+ * @description Hook to create a new art piece tag with validation and cache invalidation.
+ *
+ * @returns {Object} Mutation function and state
+ * @returns {Function} result.mutate - Function to execute the mutation (artPieceTag) => Promise
+ * @returns {boolean} result.loading - Loading state of the mutation
+ * @returns {Error} result.error - Error state of the mutation
+ * @returns {Object} result.data - Result data from successful mutation
+ * @throws {Error} When art piece tag data validation fails or API request fails
+ * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions} - Complete documentation
+ * @example
+ * const createArtPieceTag = useCreateArtPieceTag();
+ * await createArtPieceTag.mutate(artPieceTagData);
+ */
+export function useCreateArtPieceTag() {
+  const baseHook = useBaseHook("CityArtWalks.Actions.ArtPieceTag.Hooks");
+
+  return baseHook.useMutationWithInvalidation(
+    async (artPieceTag) => {
+      // Validate art piece tag data if not FormData
+      if (!(artPieceTag instanceof FormData)) {
+        baseHook.validators.validateWithSchema(
+          artPieceTag,
+          createArtPieceTagSchema,
+          "useCreateArtPieceTag",
+          true // throw on error
+        );
+      }
+
+      const result = await artPieceTagApiClient.createArtPieceTag(artPieceTag);
+      return result;
+    },
+    ["artPieceTag", "getPaginatedArtPieceTags"]
   );
 }
 
 /**
- * Hook for creating a new art piece tag with automatic cache invalidation
- *
- * @memberof CityArtWalks.Actions.ArtPieceTag.Hooks
- * @function useCreateArtPieceTag
- * @param {string} [token=''] - Optional Bearer token for authorization
- * @returns {Function} Async function to create an art piece tag
- * @returns {Promise<Object>} returns.result - Created art piece tag response
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Hooks} - Hooks documentation
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions} - Actions layer documentation
- */
-export function useCreateArtPieceTag(token = '') {
-  const { mutate } = useSWRConfig();
-
-  return async (artPieceTagData, revalidate = 600) => {
-    try {
-      const result = await requests.createArtPieceTag(artPieceTagData, token, revalidate);
-
-      // Clear SWR cache
-      mutate(
-        (key) =>
-          Array.isArray(key) &&
-          (key.includes('artPieceTag') || key.includes('getPaginatedArtPieceTags'))
-      );
-
-      // Clear IndexedDB cache
-      try {
-        const cacheKeysToDelete = ['getPaginatedArtPieceTags'];
-        for (const keyPrefix of cacheKeysToDelete) {
-          const cacheKey = buildCacheKeyFromSWRKey([keyPrefix]);
-          await saveToIndexedDb(cacheKey, null);
-          debugLog(`[IndexedDB] Cleared cache for ${cacheKey}`);
-        }
-      } catch (cacheError) {
-        debugWarn('[IndexedDB] Error clearing cache after create?:', cacheError);
-      }
-
-      return result;
-    } catch (error) {
-      // Pass through validation errors for UI display
-      if (error.name === 'ZodError') {
-        throw error;
-      }
-      throw new Error(`Failed to create art piece tag: ${error.message}`);
-    }
-  };
-}
-
-/**
- * Hook for updating an existing art piece tag with automatic cache invalidation
- *
  * @memberof CityArtWalks.Actions.ArtPieceTag.Hooks
  * @function useUpdateArtPieceTag
- * @param {string} [token=''] - Optional Bearer token for authorization
- * @returns {Function} Async function to update an art piece tag
- * @returns {Promise<Object>} returns.result - Updated art piece tag response
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Hooks} - Hooks documentation
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions} - Actions layer documentation
+ * @description Hook to update an existing art piece tag with validation and cache invalidation.
+ *
+ * @returns {Object} Mutation function and state
+ * @returns {Function} result.mutate - Function to execute the mutation (id, artPieceTagData) => Promise
+ * @returns {boolean} result.loading - Loading state of the mutation
+ * @returns {Error} result.error - Error state of the mutation
+ * @returns {Object} result.data - Result data from successful mutation
+ * @throws {Error} When art piece tag ID is missing, data validation fails, or API request fails
+ * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions} - Complete documentation
+ * @example
+ * const updateArtPieceTag = useUpdateArtPieceTag();
+ * await updateArtPieceTag.mutate(artPieceTagId, updatedData);
  */
-export function useUpdateArtPieceTag(token = '') {
-  const { mutate } = useSWRConfig();
+export function useUpdateArtPieceTag() {
+  const baseHook = useBaseHook("CityArtWalks.Actions.ArtPieceTag.Hooks");
 
-  return async (id, artPieceTagData, revalidate = 600) => {
-    try {
-      const result = await requests.updateArtPieceTag(id, artPieceTagData, token, revalidate);
-
-      // Clear SWR cache - target specific keys
-      mutate(
-        (key) =>
-          Array.isArray(key) &&
-          (key.includes('artPieceTag') ||
-            key.includes('getPaginatedArtPieceTags') ||
-            (key.includes('getArtPieceTagById') && key.includes(id)))
-      );
-
-      // Clear IndexedDB cache
-      try {
-        const cacheKeysToDelete = ['getPaginatedArtPieceTags', `getArtPieceTagById_${id}`];
-        for (const keyPrefix of cacheKeysToDelete) {
-          const cacheKey = buildCacheKeyFromSWRKey([keyPrefix]);
-          await saveToIndexedDb(cacheKey, null);
-          debugLog(`[IndexedDB] Cleared cache for ${cacheKey}`);
-        }
-      } catch (cacheError) {
-        debugWarn('[IndexedDB] Error clearing cache after update?:', cacheError);
+  return baseHook.useMutationWithInvalidation(
+    async (id, artPieceTag) => {
+      // Validate parameters
+      if (!id) {
+        baseHook.logger.error("useUpdateArtPieceTag", "ArtPieceTag ID is required");
+        throw new Error("ArtPieceTag ID is required");
       }
 
+      // Validate art piece tag data if not FormData
+      if (!(artPieceTag instanceof FormData)) {
+        baseHook.validators.validateWithSchema(
+          artPieceTag,
+          updateArtPieceTagSchema,
+          "useUpdateArtPieceTag",
+          true // throw on error
+        );
+      }
+
+      const result = await artPieceTagApiClient.updateArtPieceTag(id, artPieceTag);
       return result;
-    } catch (error) {
-      // Pass through validation errors for UI display
-      if (error.name === 'ZodError') {
-        throw error;
-      }
-      throw new Error(`Failed to update art piece tag: ${error.message}`);
-    }
-  };
+    },
+    ["artPieceTag", "getPaginatedArtPieceTags"]
+  );
 }
 
 /**
- * Hook for deleting an art piece tag with automatic cache invalidation
- *
  * @memberof CityArtWalks.Actions.ArtPieceTag.Hooks
  * @function useDeleteArtPieceTag
- * @param {string} [token=''] - Optional Bearer token for authorization
- * @returns {Function} Async function to delete an art piece tag
- * @returns {Promise<Object>} returns.result - Deletion response
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Hooks} - Hooks documentation
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions} - Actions layer documentation
+ * @description Hook to delete an art piece tag with validation and cache invalidation.
+ *
+ * @returns {Object} Mutation function and state
+ * @returns {Function} result.mutate - Function to execute the mutation (id) => Promise
+ * @returns {boolean} result.loading - Loading state of the mutation
+ * @returns {Error} result.error - Error state of the mutation
+ * @returns {Object} result.data - Result data from successful mutation
+ * @throws {Error} When art piece tag ID is missing or API request fails
+ * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions} - Complete documentation
+ * @example
+ * const deleteArtPieceTag = useDeleteArtPieceTag();
+ * await deleteArtPieceTag.mutate(artPieceTagId);
  */
-export function useDeleteArtPieceTag(token = '') {
-  const { mutate } = useSWRConfig();
+export function useDeleteArtPieceTag() {
+  const baseHook = useBaseHook("CityArtWalks.Actions.ArtPieceTag.Hooks");
 
-  return async (id, revalidate = 600) => {
-    try {
-      const result = await requests.deleteArtPieceTag(id, token, revalidate);
-
-      // Clear SWR cache - comprehensive invalidation
-      mutate(
-        (key) =>
-          Array.isArray(key) &&
-          (key.includes('artPieceTag') ||
-            key.includes('getPaginatedArtPieceTags') ||
-            (key.includes('getArtPieceTagById') && key.includes(id)))
-      );
-
-      // Clear IndexedDB cache
-      try {
-        const cacheKeysToDelete = ['getPaginatedArtPieceTags', `getArtPieceTagById_${id}`];
-        for (const keyPrefix of cacheKeysToDelete) {
-          const cacheKey = buildCacheKeyFromSWRKey([keyPrefix]);
-          await saveToIndexedDb(cacheKey, null);
-          debugLog(`[IndexedDB] Cleared cache for ${cacheKey}`);
-        }
-      } catch (cacheError) {
-        debugWarn('[IndexedDB] Error clearing cache after delete?:', cacheError);
+  return baseHook.useMutationWithInvalidation(
+    async (id) => {
+      // Validate parameters
+      if (!id) {
+        baseHook.logger.error("useDeleteArtPieceTag", "ArtPieceTag ID is required");
+        throw new Error("ArtPieceTag ID is required");
       }
 
+      const result = await artPieceTagApiClient.deleteArtPieceTag(id);
       return result;
-    } catch (error) {
-      throw new Error(`Failed to delete art piece tag: ${error.message}`);
-    }
-  };
+    },
+    ["artPieceTag", "getPaginatedArtPieceTags"]
+  );
 }
 
 /**
- * Combined hook that provides all art piece tag mutation functions
- *
  * @memberof CityArtWalks.Actions.ArtPieceTag.Hooks
  * @function useArtPieceTagMutations
- * @param {string} [token=''] - Optional Bearer token for authorization
- * @returns {Object} Object containing all mutation functions
- * @returns {Function} returns.createArtPieceTag - Function to create art piece tag
- * @returns {Function} returns.updateArtPieceTag - Function to update art piece tag
- * @returns {Function} returns.deleteArtPieceTag - Function to delete art piece tag
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Hooks} - Hooks documentation
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions} - Actions layer documentation
+ * @description Hook that returns all art piece tag mutation functions for convenient access.
+ *
+ * @returns {Object} Collection of all art piece tag mutation functions
+ * @returns {Function} result.createArtPieceTag - Create art piece tag mutation function
+ * @returns {Function} result.updateArtPieceTag - Update art piece tag mutation function
+ * @returns {Function} result.deleteArtPieceTag - Delete art piece tag mutation function
+ * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions} - Complete documentation
+ * @example
+ * const { createArtPieceTag, updateArtPieceTag, deleteArtPieceTag } = useArtPieceTagMutations();
+ * await createArtPieceTag.mutate(artPieceTagData);
+ * await updateArtPieceTag.mutate(artPieceTagId, updatedData);
+ * await deleteArtPieceTag.mutate(artPieceTagId);
  */
-export function useArtPieceTagMutations(token = '') {
-  const createArtPieceTag = useCreateArtPieceTag(token);
-  const updateArtPieceTag = useUpdateArtPieceTag(token);
-  const deleteArtPieceTag = useDeleteArtPieceTag(token);
+export function useArtPieceTagMutations() {
+  const createArtPieceTag = useCreateArtPieceTag();
+  const updateArtPieceTag = useUpdateArtPieceTag();
+  const deleteArtPieceTag = useDeleteArtPieceTag();
 
   return {
     createArtPieceTag,

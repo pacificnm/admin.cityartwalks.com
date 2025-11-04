@@ -13,6 +13,8 @@ import { iconButtonClasses } from '@mui/material/IconButton';
 import { Logo } from 'src/components/logo';
 import { useSettingsContext } from 'src/components/settings';
 
+import { useSessionExpiration } from 'src/auth/hooks';
+
 import { NavMobile } from './nav-mobile';
 import { VerticalDivider } from './content';
 import { NavVertical } from './nav-vertical';
@@ -35,6 +37,9 @@ export function DashboardLayout(props) {
   const { user } = useUser();
 
   const settings = useSettingsContext();
+
+  // Listen for session expiration events and handle redirect to login
+  useSessionExpiration();
 
   const navVars = dashboardNavColorVars(theme, settings.state.navColor, settings.state.navLayout);
 

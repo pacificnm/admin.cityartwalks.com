@@ -8,8 +8,8 @@
  * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Image} - Image entity documentation
  */
 
-import { useState } from 'react';
 import PropTypes from 'prop-types';
+import { useState, useEffect, useCallback } from 'react';
 import { Controller, useFormContext } from 'react-hook-form';
 
 import Box from '@mui/material/Box';
@@ -26,8 +26,6 @@ import { useUploadImage } from 'src/actions/image/hooks';
 import { Iconify } from 'src/components/iconify';
 import { CloseIcon, UploadIcon } from 'src/components/icons';
 import ErrorBoundary from 'src/components/error/error-boundary';
-
-import { useAuthContext } from 'src/auth/hooks';
 
 /**
  * @memberof CityArtWalks.Forms.Elements.ImageUrl
@@ -88,13 +86,15 @@ export function ElementImageUrl(props) {
     ...other
   } = props;
 
-  const { control, setValue } = useFormContext();
-  const { accessToken } = useAuthContext();
-  const uploadImage = useUploadImage(accessToken);
+  const { control, setValue, watch } = useFormContext();
+  const uploadImage = useUploadImage();
 
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState(null);
   const [imagePreview, setImagePreview] = useState(null);
+
+  // Watch the field value
+  const fieldValue = watch(name);
 
   /**
    * @memberof CityArtWalks.Forms.Elements.ImageUrl.ElementImageUrl
@@ -123,7 +123,7 @@ export function ElementImageUrl(props) {
    * @description Updates the image preview based on the current URL.
    * @param {string} url - The image URL to preview
    */
-  const updatePreview = async (url) => {
+  const updatePreview = useCallback(async (url) => {
     if (!url) {
       setImagePreview(null);
       return;
@@ -131,7 +131,7 @@ export function ElementImageUrl(props) {
 
     const isValid = await validateImageUrl(url);
     setImagePreview(isValid ? url : null);
-  };
+  }, []);
 
   /**
    * @memberof CityArtWalks.Forms.Elements.ImageUrl.ElementImageUrl
@@ -226,6 +226,13 @@ export function ElementImageUrl(props) {
       handleFileUpload(file, onChange);
     }
   };
+
+  // Initialize preview when field has an initial value
+  useEffect(() => {
+    if (fieldValue && !imagePreview && !isUploading) {
+      updatePreview(fieldValue);
+    }
+  }, [fieldValue, imagePreview, isUploading, updatePreview]);
 
   return (
     <ErrorBoundary>

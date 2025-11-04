@@ -1,78 +1,71 @@
 /**
  * @file hooks.js
- * @description React hooks for Artist operations using SWR with IndexedDB caching and automatic cache invalidation
- * @namespace CityArtWalks.Actions.Artist.Hooks
- * @version 3.0.0
+ * @description SWR-based data fetching hooks for Artist.
  * @author Jaimie Garner
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Analytics-Hooks} - Hooks documentation
+ * @version 2.1.0
+ * @namespace CityArtWalks.Actions.Artist.Hooks
+ * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions} - Complete documentation
+ * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Hooks} - Hooks documentation
+ * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Artist} - Artist entity documentation
  */
 
-import useSWR, { useSWRConfig } from 'swr';
-import { useMemo, useEffect } from 'react';
+import { useMemo, useEffect } from "react";
 
-import { debugLog, debugWarn, debugError } from 'src/lib/debug';
-import { saveToIndexedDb, loadFromIndexedDb, buildCacheKeyFromSWRKey } from 'src/lib/indexDb';
+import { useBaseHook } from "src/lib/base-hook";
 
-import * as requests from './requests.js';
+import { ArtistApiClient } from "./requests";
 
-const swrOptions = {
-  revalidateIfStale: false,
-  revalidateOnFocus: false,
-  revalidateOnReconnect: false,
-  keepPreviousData: true,
-};
-
+// Create a single instance to use across all hooks
+const artistApiClient = new ArtistApiClient();
 
 /**
- * SWR hook for paginated artists with IndexedDB caching support
- *
  * @memberof CityArtWalks.Actions.Artist.Hooks
  * @function useGetPaginatedArtists
- * @param {Object} [filters={}] - Filter parameters object
- * @param {string} [filters.search=''] - Search term for name/description fields
- * @param {string} [filters.status=''] - Status filter (ACTIVE, DELETED, etc.)
- * @param {string} [filters.createdBy=''] - Creator user ID filter
- * @param {string} [filters.cityId=''] - City ID filter
- * @param {string} [filters.stateId=''] - State ID filter
- * @param {string} [filters.countryId=''] - Country ID filter
- * @param {string} [filters.featured=''] - Featured filter
- * @param {number} [page=1] - Page number for pagination
- * @param {number} [rowsPerPage=10] - Number of items per page
- * @param {string} [token=''] - Auth token for authorization
- * @param {number} [revalidate=600] - Revalidate interval in seconds
- * @param {*} [refreshKey] - Key to trigger manual refresh
- * @returns {Object} Paginated artists result with IndexedDB caching
- * @returns {Array} returns.artists - Array of artist objects
- * @returns {Object} returns.paginationMeta - Pagination metadata
- * @returns {boolean} returns.artistsLoading - Loading state
- * @returns {Error} returns.artistsError - Error state
- * @returns {boolean} returns.artistsEmpty - Empty state
- * @returns {Function} returns.mutate - SWR mutate function
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Hooks} - Hooks documentation
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions} - Actions layer documentation
+ * @description Hook to get paginated artists with full filtering, caching via IndexedDB.
+ *
+ * @param {Object} params - Filter parameters
+ * @param {number} [params.page=1] - Page number
+ * @param {number} [params.limit=10] - Results per page limit
+ * @param {string} [params.search=''] - Search term
+ * @param {string} [params.status=''] - Status filter (ACTIVE, DELETED, etc.)
+ * @param {string} [params.createdBy=''] - Creator user ID filter
+ * @param {string} [params.cityId=''] - City ID filter
+ * @param {string} [params.stateId=''] - State ID filter
+ * @param {string} [params.countryId=''] - Country ID filter
+ * @param {string} [params.featured=''] - Featured filter
+ * @param {string|null} [params.refreshKey=null] - Key to trigger refresh
+ * @param {number} [revalidate=600] - Optional ISR revalidate time in seconds
+ * @returns {Object} Result including loading states, errors, and complete API results
+ * @returns {Object} result.results - Complete API results object (data, pagination, performance, query metadata)
+ * @returns {boolean} result.artistsLoading - Loading state
+ * @returns {Error} result.artistsError - Error state
+ * @returns {boolean} result.artistsValidating - Validation state
+ * @returns {boolean} result.artistsEmpty - Empty state (no data)
+ * @returns {Function} result.mutate - SWR mutate function
+ * @throws {Error} When parameter validation fails
+ * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions} - Complete documentation
  */
-export function useGetPaginatedArtists(
-  filters = {},
-  page = 1,
-  rowsPerPage = 10,
-  token = '',
-  revalidate = 600,
-  refreshKey
-) {
-  const {
-    search = '',
-    status = '',
-    createdBy = '',
-    cityId = '',
-    stateId = '',
-    countryId = '',
-    featured = '',
-  } = filters;
-  const revalidateMs = revalidate * 1000;
+export function useGetPaginatedArtists(params = {}, revalidate = 600) {
+  const baseHook = useBaseHook("CityArtWalks.Actions.Artist.Hooks");
 
-  const { swrKey, cacheKey } = useMemo(() => {
+  const {
+    page = 1,
+    limit = 10,
+    search = "",
+    status = "",
+    createdBy = "",
+    cityId = "",
+    stateId = "",
+    countryId = "",
+    featured = "",
+    refreshKey = null,
+  } = params;
+
+  const { swrKey } = useMemo(() => {
     const key = [
-      'getPaginatedArtists',
+      "getPaginatedArtists",
+      page,
+      limit,
       search,
       status,
       createdBy,
@@ -80,15 +73,13 @@ export function useGetPaginatedArtists(
       stateId,
       countryId,
       featured,
-      page,
-      rowsPerPage,
       revalidate,
     ];
-    return {
-      swrKey: key,
-      cacheKey: buildCacheKeyFromSWRKey(key),
-    };
+    return baseHook.utils.generateKeys(key);
   }, [
+    baseHook.utils,
+    page,
+    limit,
     search,
     status,
     createdBy,
@@ -96,710 +87,513 @@ export function useGetPaginatedArtists(
     stateId,
     countryId,
     featured,
-    page,
-    rowsPerPage,
     revalidate,
   ]);
 
-  const { data, isLoading, error, mutate } = useSWR(
-    swrKey,
-    () => requests.getPaginatedArtists(page, rowsPerPage, filters, token, revalidate),
-    {
-      refreshInterval: revalidateMs,
-    }
-  );
+  const { data, isLoading, error, isValidating, mutate } =
+    baseHook.useSWRWithCache(
+      swrKey,
+      async () => {
+        const response = await artistApiClient.getPaginatedArtists(
+          { page, limit, search, status, createdBy, cityId, stateId, countryId, featured },
+          revalidate
+        );
+        return response;
+      },
+      revalidate
+    );
 
-  // IndexedDB fallback loading
-  useEffect(() => {
-    if (!cacheKey || !mutate) return;
-    (async () => {
-      try {
-        const cached = await loadFromIndexedDb(cacheKey, revalidateMs);
-        if (cached) {
-          debugLog(`[IndexedDB] Cache hit for ${cacheKey}`);
-          mutate(cached, false);
-        }
-      } catch (cacheError) {
-        debugWarn(`[IndexedDB] Error loading cache for ${cacheKey}:`, cacheError);
-      }
-    })();
-  }, [cacheKey, mutate, revalidateMs]);
-
-  // Manual refresh trigger
   useEffect(() => {
     if (refreshKey) mutate();
   }, [refreshKey, mutate]);
 
-  return useMemo(
-    () => ({
-      artists: data?.data?.artists || [],
-      paginationMeta: data?.data?.meta || {
-        total: 0,
-        page: 1,
-        rowsPerPage: 10,
-        totalPages: 0,
-      },
+  return useMemo(() => {
+    const results = data?.results || {};
+    return {
+      results, // Complete API results object with data, pagination, performance, etc.
       artistsLoading: isLoading,
       artistsError: error,
-      artistsEmpty: !isLoading && (!data?.data?.artists || data?.data?.artists.length === 0),
+      artistsValidating: isValidating,
+      artistsEmpty: !isLoading && (!results.data || results.data.length === 0),
       mutate,
-    }),
-    [data, isLoading, error, mutate]
-  );
-}
-
-/**
- * Direct API hook for paginated artists without any caching
- *
- * This hook makes direct API calls without SWR caching, IndexedDB fallback,
- * or memoization. Ideal for admin operations where fresh data is required
- * and cache pollution should be avoided.
- *
- * @memberof CityArtWalks.Actions.Artist.Hooks
- * @function useGetPaginatedArtistsNoCache
- * @param {Object} [filters={}] - Filter parameters object
- * @param {number} [page=1] - Page number for pagination
- * @param {number} [rowsPerPage=25] - Number of items per page
- * @param {string} [token=''] - Optional Bearer token for authorization
- * @param {number} [revalidate=0] - Revalidate interval (ignored, included for compatibility)
- * @returns {Object} Artists data with loading and error states
- * @returns {Array} returns.artists - Array of artist objects
- * @returns {Object} returns.paginationMeta - Pagination metadata
- * @returns {boolean} returns.artistsLoading - Loading state
- * @returns {Error} returns.artistsError - Error state
- * @returns {boolean} returns.artistsEmpty - Empty state
- * @returns {Function} returns.mutate - Refresh function
- */
-export function useGetPaginatedArtistsNoCache({
-  filters = {},
-  page = 1,
-  rowsPerPage = 25,
-  token = '',
-  revalidate = 0,
-} = {}) {
-  const { data, isLoading, error, mutate } = useSWR(
-    ['getPaginatedArtistsNoCache', Date.now()], // Always unique key to prevent caching
-    () => requests.getPaginatedArtists(page, rowsPerPage, filters, token, revalidate),
-    {
-      revalidateIfStale: false,
-      revalidateOnFocus: false,
-      revalidateOnReconnect: false,
-      dedupingInterval: 0, // No deduplication
-      refreshInterval: 0, // No auto-refresh
-    }
-  );
-
-  return useMemo(
-    () => ({
-      artists: data?.data?.artists || [],
-      paginationMeta: data?.data?.paginationMeta || {},
-      artistsLoading: isLoading,
-      artistsError: error,
-      artistsEmpty: !isLoading && (!data?.data?.artists || data?.data?.artists.length === 0),
-      mutate,
-    }),
-    [data, isLoading, error, mutate]
-  );
-}
-
-/**
- * SWR hook for fetching a single artist by ID with IndexedDB caching
- *
- * @memberof CityArtWalks.Actions.Artist.Hooks
- * @function useGetArtistById
- * @param {string|number} id - The unique identifier of the artist
- * @param {string} [token=''] - Optional Bearer token for authorization
- * @param {number} [revalidate=600] - Revalidate interval in seconds
- * @returns {Object} Artist data with loading and error states
- * @returns {Object} returns.artist - Artist object or null
- * @returns {boolean} returns.artistLoading - Loading state
- * @returns {Error} returns.artistError - Error state
- * @returns {boolean} returns.artistValidating - Revalidation state
- * @returns {boolean} returns.artistEmpty - Empty state
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Hooks} - Hooks documentation
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions} - Actions layer documentation
- */
-export function useGetArtistById(id, token = '', revalidate = 600) {
-  const revalidateMs = revalidate * 1000;
-
-  const { swrKey, cacheKey } = useMemo(() => {
-    if (!id) return { swrKey: null, cacheKey: null };
-    const key = ['getArtistById', id, revalidate];
-    return {
-      swrKey: key,
-      cacheKey: buildCacheKeyFromSWRKey(key),
     };
-  }, [id, revalidate]);
-
-  const { data, isLoading, error, isValidating, mutate } = useSWR(
-    swrKey,
-    async () => {
-      const response = await requests.getArtistById(id, token, revalidate);
-      if (response && cacheKey) {
-        await saveToIndexedDb(cacheKey, response);
-        debugLog(`[IndexedDB] Saved data for ${cacheKey}`);
-      }
-      return response;
-    },
-    swrOptions
-  );
-
-  // IndexedDB fallback loading
-  useEffect(() => {
-    if (!cacheKey || !mutate) return;
-    (async () => {
-      try {
-        const cached = await loadFromIndexedDb(cacheKey, revalidateMs);
-        if (cached) {
-          debugLog(`[IndexedDB] Cache hit for ${cacheKey}`);
-          mutate(cached, false);
-        }
-      } catch (cacheError) {
-        debugWarn(`[IndexedDB] Error loading cache for ${cacheKey}:`, cacheError);
-      }
-    })();
-  }, [cacheKey, mutate, revalidateMs]);
-
-  return useMemo(
-    () => ({
-      artist: data?.data || null,
-      artistLoading: isLoading,
-      artistError: error,
-      artistValidating: isValidating,
-      artistEmpty: !isLoading && !data?.data,
-    }),
-    [data, isLoading, error, isValidating]
-  );
+  }, [data, isLoading, error, isValidating, mutate]);
 }
-
-/**
- * SWR hook for fetching a single artist by slug with IndexedDB caching
- *
- * @memberof CityArtWalks.Actions.Artist.Hooks
- * @function useGetArtistBySlug
- * @param {string} slug - The unique slug identifier for the artist
- * @param {string} [token=''] - Optional Bearer token for authorization
- * @param {number} [revalidate=600] - Revalidate interval in seconds
- * @returns {Object} Artist data with loading and error states
- * @returns {Object} returns.artist - Artist object or null
- * @returns {boolean} returns.artistLoading - Loading state
- * @returns {Error} returns.artistError - Error state
- * @returns {boolean} returns.artistValidating - Revalidation state
- * @returns {boolean} returns.artistEmpty - Empty state
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Hooks} - Hooks documentation
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions} - Actions layer documentation
- */
-export function useGetArtistBySlug(slug, token = '', revalidate = 600) {
-  const revalidateMs = revalidate * 1000;
-
-  const { swrKey, cacheKey } = useMemo(() => {
-    if (!slug) return { swrKey: null, cacheKey: null };
-    const key = ['getArtistBySlug', slug, revalidate];
-    return {
-      swrKey: key,
-      cacheKey: buildCacheKeyFromSWRKey(key),
-    };
-  }, [slug, revalidate]);
-
-  const { data, isLoading, error, isValidating, mutate } = useSWR(
-    swrKey,
-    async () => {
-      const response = await requests.getArtistBySlug(slug, token, revalidate);
-      if (response && cacheKey) {
-        await saveToIndexedDb(cacheKey, response);
-        debugLog(`[IndexedDB] Saved data for ${cacheKey}`);
-      }
-      return response;
-    },
-    swrOptions
-  );
-
-  // IndexedDB fallback loading
-  useEffect(() => {
-    if (!cacheKey || !mutate) return;
-    (async () => {
-      try {
-        const cached = await loadFromIndexedDb(cacheKey, revalidateMs);
-        if (cached) {
-          debugLog(`[IndexedDB] Cache hit for ${cacheKey}`);
-          mutate(cached, false);
-        }
-      } catch (cacheError) {
-        debugWarn(`[IndexedDB] Error loading cache for ${cacheKey}:`, cacheError);
-      }
-    })();
-  }, [cacheKey, mutate, revalidateMs]);
-
-  return useMemo(
-    () => ({
-      artist: data?.data || null,
-      artistLoading: isLoading,
-      artistError: error,
-      artistValidating: isValidating,
-      artistEmpty: !isLoading && !data?.data,
-    }),
-    [data, isLoading, error, isValidating]
-  );
-}
-
-// ===== MUTATION HOOKS =====
-
-/**
- * Hook for creating a new artist with automatic cache invalidation
- *
- * @memberof CityArtWalks.Actions.Artist.Hooks
- * @function useCreateArtist
- * @param {string} [token=''] - Optional Bearer token for authorization
- * @returns {Function} Async function to create an artist
- * @returns {Promise<Object>} returns.result - Created artist response
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Hooks} - Hooks documentation
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions} - Actions layer documentation
- */
-export function useCreateArtist(token = '') {
-  const { mutate } = useSWRConfig();
-
-  return async (artistData, revalidate = 600) => {
-    try {
-      const result = await requests.createArtist(artistData, token, revalidate);
-
-      // Clear SWR cache
-      mutate(
-        (key) =>
-          Array.isArray(key) && (key.includes('artist') || key.includes('getPaginatedArtists'))
-      );
-
-      // Clear IndexedDB cache
-      try {
-        const cacheKeysToDelete = ['getPaginatedArtists'];
-        for (const keyPrefix of cacheKeysToDelete) {
-          const cacheKey = buildCacheKeyFromSWRKey([keyPrefix]);
-          await saveToIndexedDb(cacheKey, null);
-          debugLog(`[IndexedDB] Cleared cache for ${cacheKey}`);
-        }
-      } catch (cacheError) {
-        debugWarn('[IndexedDB] Error clearing cache after create?:', cacheError);
-      }
-
-      return result;
-    } catch (error) {
-      // Pass through validation errors for UI display
-      if (error.name === 'ZodError') {
-        throw error;
-      }
-      throw new Error(`Failed to create artist: ${error.message}`);
-    }
-  };
-}
-
-/**
- * Hook for updating an existing artist with automatic cache invalidation
- *
- * @memberof CityArtWalks.Actions.Artist.Hooks
- * @function useUpdateArtist
- * @param {string} [token=''] - Optional Bearer token for authorization
- * @returns {Function} Async function to update an artist
- * @returns {Promise<Object>} returns.result - Updated artist response
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Hooks} - Hooks documentation
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions} - Actions layer documentation
- */
-export function useUpdateArtist(token = '') {
-  const { mutate } = useSWRConfig();
-
-  return async (id, artistData, revalidate = 600) => {
-    try {
-      const result = await requests.updateArtist(id, artistData, token, revalidate);
-
-      // Clear SWR cache - target specific keys
-      mutate(
-        (key) =>
-          Array.isArray(key) &&
-          (key.includes('artist') ||
-            key.includes('getPaginatedArtists') ||
-            (key.includes('getArtistById') && key.includes(id)) ||
-            key.includes('getArtistBySlug'))
-      );
-
-      // Clear IndexedDB cache
-      try {
-        const cacheKeysToDelete = ['getPaginatedArtists', `getArtistById_${id}`, 'getArtistBySlug'];
-        for (const keyPrefix of cacheKeysToDelete) {
-          const cacheKey = buildCacheKeyFromSWRKey([keyPrefix]);
-          await saveToIndexedDb(cacheKey, null);
-          debugLog(`[IndexedDB] Cleared cache for ${cacheKey}`);
-        }
-      } catch (cacheError) {
-        debugWarn('[IndexedDB] Error clearing cache after update?:', cacheError);
-      }
-
-      return result;
-    } catch (error) {
-      // Pass through validation errors for UI display
-      if (error.name === 'ZodError') {
-        throw error;
-      }
-      throw new Error(`Failed to update artist: ${error.message}`);
-    }
-  };
-}
-
-/**
- * Hook for deleting an artist with automatic cache invalidation
- *
- * @memberof CityArtWalks.Actions.Artist.Hooks
- * @function useDeleteArtist
- * @param {string} [token=''] - Optional Bearer token for authorization
- * @returns {Function} Async function to delete an artist
- * @returns {Promise<Object>} returns.result - Deletion response
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Hooks} - Hooks documentation
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions} - Actions layer documentation
- */
-export function useDeleteArtist(token = '') {
-  const { mutate } = useSWRConfig();
-
-  return async (id, revalidate = 600) => {
-    try {
-      const result = await requests.deleteArtist(id, token, revalidate);
-
-      // Clear SWR cache - comprehensive invalidation
-      mutate(
-        (key) =>
-          Array.isArray(key) &&
-          (key.includes('artist') ||
-            key.includes('getPaginatedArtists') ||
-            (key.includes('getArtistById') && key.includes(id)) ||
-            key.includes('getArtistBySlug'))
-      );
-
-      // Clear IndexedDB cache
-      try {
-        const cacheKeysToDelete = ['getPaginatedArtists', `getArtistById_${id}`, 'getArtistBySlug'];
-        for (const keyPrefix of cacheKeysToDelete) {
-          const cacheKey = buildCacheKeyFromSWRKey([keyPrefix]);
-          await saveToIndexedDb(cacheKey, null);
-          debugLog(`[IndexedDB] Cleared cache for ${cacheKey}`);
-        }
-      } catch (cacheError) {
-        debugWarn('[IndexedDB] Error clearing cache after delete?:', cacheError);
-      }
-
-      return result;
-    } catch (error) {
-      throw new Error(`Failed to delete artist: ${error.message}`);
-    }
-  };
-}
-
-/**
- * Combined hook that provides all artist mutation functions
- *
- * @memberof CityArtWalks.Actions.Artist.Hooks
- * @function useArtistMutations
- * @param {string} [token=''] - Optional Bearer token for authorization
- * @returns {Object} Object containing all mutation functions
- * @returns {Function} returns.createArtist - Function to create artist
- * @returns {Function} returns.updateArtist - Function to update artist
- * @returns {Function} returns.deleteArtist - Function to delete artist
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Hooks} - Hooks documentation
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions} - Actions layer documentation
- */
-export function useArtistMutations(token = '') {
-  const createArtist = useCreateArtist(token);
-  const updateArtist = useUpdateArtist(token);
-  const deleteArtist = useDeleteArtist(token);
-
-  return {
-    createArtist,
-    updateArtist,
-    deleteArtist,
-  };
-}
-
-// ===== CUSTOM BUSINESS LOGIC HOOKS =====
-// TODO: Review - Custom hooks - Verify necessity and standards compliance
 
 /**
  * @memberof CityArtWalks.Actions.Artist.Hooks
  * @function useGetArtist
- * @description Custom business logic hook - not part of standard CRUD
- * TODO: Review - Custom hook - Verify necessity and standards compliance
- * @deprecated Consider using useGetArtistById or useGetArtistBySlug instead
+ * @description Hook to get artist by ID with IndexedDB caching.
+ *
+ * @param {string|number} artistId - The artist ID
+ * @param {number} [revalidate=600] - Optional ISR revalidate time in seconds
+ * @returns {Object} Result including loading states, errors, and artist data
+ * @throws {Error} When artistId is invalid or API request fails
+ * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions} - Complete documentation
  */
-export function useGetArtist(id) {
-  const key = ['getArtist', id];
-  const { data, isLoading, error, isValidating } = useSWR(
-    key,
-    () => requests.getArtist(id),
-    swrOptions
-  );
+export function useGetArtist(artistId, revalidate = 600) {
+  const baseHook = useBaseHook("CityArtWalks.Actions.Artist.Hooks");
 
-  return useMemo(
-    () => ({
-      artist: data?.data || null,
+  const { swrKey } = useMemo(() => {
+    if (!artistId) return { swrKey: null };
+    const key = ["getArtist", artistId, revalidate];
+    return baseHook.utils.generateKeys(key);
+  }, [baseHook.utils, artistId, revalidate]);
+
+  const { data, isLoading, error, isValidating, mutate } =
+    baseHook.useSWRWithCache(
+      swrKey,
+      async () => {
+        const response = await artistApiClient.getArtist(artistId, revalidate);
+        return response;
+      },
+      revalidate
+    );
+
+  return useMemo(() => {
+    const artist = data?.results?.data || null;
+    return {
+      artist,
       artistLoading: isLoading,
       artistError: error,
       artistValidating: isValidating,
-      artistEmpty: !isLoading && !data?.data,
-    }),
-    [data, isLoading, error, isValidating]
+      artistEmpty: !isLoading && !artist,
+      mutate,
+    };
+  }, [data, isLoading, error, isValidating, mutate]);
+}
+
+/**
+ * @memberof CityArtWalks.Actions.Artist.Hooks
+ * @function useGetArtistBySlug
+ * @description Hook to get artist by slug with IndexedDB caching.
+ *
+ * @param {string} slug - The artist slug
+ * @param {number} [revalidate=600] - Optional ISR revalidate time in seconds
+ * @returns {Object} Result including loading states, errors, and artist data
+ * @throws {Error} When slug is invalid or API request fails
+ * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions} - Complete documentation
+ */
+export function useGetArtistBySlug(slug, revalidate = 600) {
+  const baseHook = useBaseHook("CityArtWalks.Actions.Artist.Hooks");
+
+  const { swrKey } = useMemo(() => {
+    if (!slug) return { swrKey: null };
+    const key = ["getArtistBySlug", slug, revalidate];
+    return baseHook.utils.generateKeys(key);
+  }, [baseHook.utils, slug, revalidate]);
+
+  const { data, isLoading, error, isValidating, mutate } =
+    baseHook.useSWRWithCache(
+      swrKey,
+      async () => {
+        const response = await artistApiClient.getArtistBySlug(slug, revalidate);
+        return response;
+      },
+      revalidate
+    );
+
+  return useMemo(() => {
+    const artist = data?.results?.data || null;
+    return {
+      artist,
+      artistLoading: isLoading,
+      artistError: error,
+      artistValidating: isValidating,
+      artistEmpty: !isLoading && !artist,
+      mutate,
+    };
+  }, [data, isLoading, error, isValidating, mutate]);
+}
+
+/**
+ * @memberof CityArtWalks.Actions.Artist.Hooks
+ * @function useCreateArtist
+ * @description Hook to create a new artist with validation and cache invalidation.
+ *
+ * @returns {Object} Mutation function and state
+ * @returns {Function} result.mutate - Function to execute the mutation (artist) => Promise
+ * @returns {boolean} result.loading - Loading state of the mutation
+ * @returns {Error} result.error - Error state of the mutation
+ * @returns {Object} result.data - Result data from successful mutation
+ * @throws {Error} When artist data validation fails or API request fails
+ * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions} - Complete documentation
+ * @example
+ * const createArtist = useCreateArtist();
+ * await createArtist.mutate(artistData);
+ */
+export function useCreateArtist() {
+  const baseHook = useBaseHook("CityArtWalks.Actions.Artist.Hooks");
+
+  return baseHook.useMutationWithInvalidation(
+    async (artist) => {
+      const result = await artistApiClient.createArtist(artist);
+      return result;
+    },
+    ["artist", "getPaginatedArtists"]
+  );
+}
+
+/**
+ * @memberof CityArtWalks.Actions.Artist.Hooks
+ * @function useUpdateArtist
+ * @description Hook to update an existing artist with validation and cache invalidation.
+ *
+ * @returns {Object} Mutation function and state
+ * @returns {Function} result.mutate - Function to execute the mutation (id, artistData) => Promise
+ * @returns {boolean} result.loading - Loading state of the mutation
+ * @returns {Error} result.error - Error state of the mutation
+ * @returns {Object} result.data - Result data from successful mutation
+ * @throws {Error} When artist ID is missing, data validation fails, or API request fails
+ * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions} - Complete documentation
+ * @example
+ * const updateArtist = useUpdateArtist();
+ * await updateArtist.mutate(artistId, updatedData);
+ */
+export function useUpdateArtist() {
+  const baseHook = useBaseHook("CityArtWalks.Actions.Artist.Hooks");
+
+  return baseHook.useMutationWithInvalidation(
+    async (id, artist) => {
+      if (!id) {
+        baseHook.logger.error("useUpdateArtist", "Artist ID is required");
+        throw new Error("Artist ID is required");
+      }
+
+      const result = await artistApiClient.updateArtist(id, artist);
+      return result;
+    },
+    ["artist", "getPaginatedArtists"]
+  );
+}
+
+/**
+ * @memberof CityArtWalks.Actions.Artist.Hooks
+ * @function useDeleteArtist
+ * @description Hook to delete an artist with validation and cache invalidation.
+ *
+ * @returns {Object} Mutation function and state
+ * @returns {Function} result.mutate - Function to execute the mutation (id) => Promise
+ * @returns {boolean} result.loading - Loading state of the mutation
+ * @returns {Error} result.error - Error state of the mutation
+ * @returns {Object} result.data - Result data from successful mutation
+ * @throws {Error} When artist ID is missing or API request fails
+ * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions} - Complete documentation
+ * @example
+ * const deleteArtist = useDeleteArtist();
+ * await deleteArtist.mutate(artistId);
+ */
+export function useDeleteArtist() {
+  const baseHook = useBaseHook("CityArtWalks.Actions.Artist.Hooks");
+
+  return baseHook.useMutationWithInvalidation(
+    async (id) => {
+      // Validate parameters
+      if (!id) {
+        baseHook.logger.error("useDeleteArtist", "Artist ID is required");
+        throw new Error("Artist ID is required");
+      }
+
+      const result = await artistApiClient.deleteArtist(id);
+      return result;
+    },
+    ["artist", "getPaginatedArtists"]
   );
 }
 
 /**
  * @memberof CityArtWalks.Actions.Artist.Hooks
  * @function useGetActiveArtists
- * @description Custom business logic hook - not part of standard CRUD
- * TODO: Review - Custom hook - Verify necessity and standards compliance
+ * @description Hook to get active artists filtered by location and status with caching.
+ *
+ * @param {Object} params - Filter parameters
+ * @param {string} [params.city=''] - City filter
+ * @param {string} [params.status=''] - Status filter
+ * @param {string} [params.search=''] - Search term
+ * @param {number} [params.page=1] - Page number
+ * @param {number} [params.limit=10] - Results per page limit
+ * @param {number} [revalidate=600] - Optional ISR revalidate time in seconds
+ * @returns {Object} Result including loading states, errors, and artists data
+ * @throws {Error} When API request fails
+ * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions} - Complete documentation
  */
-export function useGetActiveArtists(
-  city,
-  status,
-  search = '',
-  page = 1,
-  rowsPerPage = 10,
-  token = '',
-  revalidate = 600
-) {
-  const revalidateMs = revalidate * 1000;
+export function useGetActiveArtists(params = {}, revalidate = 600) {
+  const baseHook = useBaseHook("CityArtWalks.Actions.Artist.Hooks");
 
-  const { swrKey, cacheKey } = useMemo(() => {
-    const key = ['getActiveArtists', city, status, search, page, rowsPerPage, revalidate];
+  const {
+    city = "",
+    status = "",
+    search = "",
+    page = 1,
+    limit = 10,
+  } = params;
+
+  const { swrKey } = useMemo(() => {
+    const key = ["getActiveArtists", city, status, search, page, limit, revalidate];
+    return baseHook.utils.generateKeys(key);
+  }, [baseHook.utils, city, status, search, page, limit, revalidate]);
+
+  const { data, isLoading, error, isValidating, mutate } =
+    baseHook.useSWRWithCache(
+      swrKey,
+      async () => {
+        const response = await artistApiClient.getActiveArtists(
+          { city, status, search, page, limit },
+          revalidate
+        );
+        return response;
+      },
+      revalidate
+    );
+
+  return useMemo(() => {
+    const results = data?.results || {};
     return {
-      swrKey: key,
-      cacheKey: buildCacheKeyFromSWRKey(key),
-    };
-  }, [city, status, search, page, rowsPerPage, revalidate]);
-
-  const { data, isLoading, error, isValidating, mutate } = useSWR(
-    swrKey,
-    async () => {
-      const response = await requests.getActiveArtists(
-        city,
-        status,
-        search,
-        page,
-        rowsPerPage,
-        token,
-        revalidate
-      );
-      if (response && cacheKey) {
-        await saveToIndexedDb(cacheKey, response);
-        debugLog(`[IndexedDB] Saved data for ${cacheKey}`);
-      }
-      return response;
-    },
-    swrOptions
-  );
-
-  // IndexedDB fallback loading
-  useEffect(() => {
-    if (!cacheKey || !mutate) return;
-    (async () => {
-      try {
-        const cached = await loadFromIndexedDb(cacheKey, revalidateMs);
-        if (cached) {
-          debugLog(`[IndexedDB] Cache hit for ${cacheKey}`);
-          mutate(cached, false);
-        }
-      } catch (cacheError) {
-        debugWarn(`[IndexedDB] Error loading cache for ${cacheKey}:`, cacheError);
-      }
-    })();
-  }, [cacheKey, mutate, revalidateMs]);
-
-  return useMemo(
-    () => ({
-      artists: data?.data?.artists || [],
-      paginationMeta: data?.data?.meta || { total: 0, page, rowsPerPage },
+      results,
       artistsLoading: isLoading,
       artistsError: error,
       artistsValidating: isValidating,
-      artistsEmpty: !isLoading && (!data?.data?.artists || data?.data?.artists.length === 0),
+      artistsEmpty: !isLoading && (!results.data || results.data.length === 0),
       mutate,
-    }),
-    [data, isLoading, error, isValidating, mutate, page, rowsPerPage]
-  );
+    };
+  }, [data, isLoading, error, isValidating, mutate]);
 }
 
 /**
  * @memberof CityArtWalks.Actions.Artist.Hooks
  * @function useGetArtistCounts
- * @description Custom business logic hook - not part of standard CRUD
- * TODO: Review - Custom hook - Verify necessity and standards compliance
+ * @description Hook to get artist statistics/counts by artist ID.
+ *
+ * @param {string|number} artistId - The artist ID
+ * @param {number} [revalidate=300] - Optional ISR revalidate time in seconds
+ * @returns {Object} Result including loading states, errors, and counts data
+ * @throws {Error} When artistId is invalid or API request fails
+ * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions} - Complete documentation
  */
-export function useGetArtistCounts(artistId) {
-  const key = ['getArtistCounts', artistId];
-  const { data, isLoading, error, isValidating } = useSWR(
-    key,
-    () => requests.getArtistCounts(artistId),
-    swrOptions
+export function useGetArtistCounts(artistId, revalidate = 300) {
+  const baseHook = useBaseHook("CityArtWalks.Actions.Artist.Hooks");
+
+  const { swrKey } = useMemo(() => {
+    if (!artistId) return { swrKey: null };
+    const key = ["getArtistCounts", artistId, revalidate];
+    return baseHook.utils.generateKeys(key);
+  }, [baseHook.utils, artistId, revalidate]);
+
+  const { data, isLoading, error, isValidating } = baseHook.useSWRWithCache(
+    swrKey,
+    async () => {
+      const response = await artistApiClient.getArtistCounts(artistId, revalidate);
+      return response;
+    },
+    revalidate
   );
 
-  return useMemo(
-    () => ({
-      counts: data || {},
+  return useMemo(() => {
+    const counts = data?.results?.data || {};
+    return {
+      counts,
       countsLoading: isLoading,
       countsError: error,
       countsValidating: isValidating,
-      countsEmpty: !isLoading && !data?.favoriteCount,
-    }),
-    [data, isLoading, error, isValidating]
-  );
+      countsEmpty: !isLoading && Object.keys(counts).length === 0,
+    };
+  }, [data, isLoading, error, isValidating]);
 }
 
 /**
  * @memberof CityArtWalks.Actions.Artist.Hooks
- * @function useGetArtistFeatured
- * @description Custom business logic hook - not part of standard CRUD
- * TODO: Review - Custom hook - Verify necessity and standards compliance
+ * @function useGetFeaturedArtists
+ * @description Hook to get featured artists by geographic location with caching.
+ *
+ * @param {Object} params - Filter parameters
+ * @param {string} [params.country=''] - Country filter
+ * @param {string} [params.state=''] - State filter
+ * @param {string} [params.city=''] - City filter
+ * @param {number} [params.page=1] - Page number
+ * @param {number} [params.limit=10] - Results per page limit
+ * @param {number} [revalidate=600] - Optional ISR revalidate time in seconds
+ * @returns {Object} Result including loading states, errors, and featured artists data
+ * @throws {Error} When API request fails
+ * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions} - Complete documentation
  */
-export function useGetArtistFeatured(country, state, city, page = 1, rowsPerPage = 10) {
-  const key = ['getArtistFeatured', country, state, city, page, rowsPerPage];
+export function useGetFeaturedArtists(params = {}, revalidate = 600) {
+  const baseHook = useBaseHook("CityArtWalks.Actions.Artist.Hooks");
 
-  const { data, isLoading, error, isValidating } = useSWR(
-    key,
-    () => requests.getArtistFeatured(country, state, city, page, rowsPerPage),
-    swrOptions
+  const {
+    country = "",
+    state = "",
+    city = "",
+    page = 1,
+    limit = 10,
+  } = params;
+
+  const { swrKey } = useMemo(() => {
+    const key = ["getFeaturedArtists", country, state, city, page, limit, revalidate];
+    return baseHook.utils.generateKeys(key);
+  }, [baseHook.utils, country, state, city, page, limit, revalidate]);
+
+  const { data, isLoading, error, isValidating } = baseHook.useSWRWithCache(
+    swrKey,
+    async () => {
+      const response = await artistApiClient.getFeaturedArtists(
+        { country, state, city, page, limit },
+        revalidate
+      );
+      return response;
+    },
+    revalidate
   );
 
-  return useMemo(
-    () => ({
-      artists: data?.data?.artists || [],
-      paginationMeta: data?.meta || { total: 0, page, rowsPerPage },
+  return useMemo(() => {
+    const results = data?.results || {};
+    return {
+      results,
       artistsLoading: isLoading,
       artistsError: error,
       artistsValidating: isValidating,
-      artistsEmpty: !isLoading && (!data?.data?.artists || data?.data?.artists.length === 0),
-    }),
-    [data, isLoading, error, isValidating, page, rowsPerPage]
-  );
+      artistsEmpty: !isLoading && (!results.data || results.data.length === 0),
+    };
+  }, [data, isLoading, error, isValidating]);
 }
 
 /**
  * @memberof CityArtWalks.Actions.Artist.Hooks
  * @function useIncrementArtistViewCount
- * @description Custom business logic hook - not part of standard CRUD
- * TODO: Review - Custom hook - Verify necessity and standards compliance
+ * @description Hook to increment artist view count with cache invalidation.
+ *
+ * @returns {Object} Mutation function and state
+ * @returns {Function} result.mutate - Function to execute the mutation (artistId) => Promise
+ * @returns {boolean} result.loading - Loading state of the mutation
+ * @returns {Error} result.error - Error state of the mutation
+ * @returns {Object} result.data - Result data from successful mutation
+ * @throws {Error} When artistId is invalid or API request fails
+ * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions} - Complete documentation
+ * @example
+ * const incrementViewCount = useIncrementArtistViewCount();
+ * await incrementViewCount.mutate(artistId);
  */
 export function useIncrementArtistViewCount() {
-  const { mutate } = useSWRConfig();
+  const baseHook = useBaseHook("CityArtWalks.Actions.Artist.Hooks");
 
-  return async (id, token = '') => {
-    try {
-      const result = await requests.incrementArtistViewCount(id, token);
+  return baseHook.useMutationWithInvalidation(
+    async (artistId) => {
+      // Validate parameters
+      if (!artistId) {
+        baseHook.logger.error("useIncrementArtistViewCount", "Artist ID is required");
+        throw new Error("Artist ID is required");
+      }
 
-      // Invalidate related caches
-      mutate(
-        (key) =>
-          Array.isArray(key) && (key.includes('artist') || key.includes('getPaginatedArtists'))
-      );
-
+      const result = await artistApiClient.incrementArtistViewCount(artistId);
       return result;
-    } catch (error) {
-      throw new Error(`Failed to increment artist view count: ${error.message}`);
-    }
-  };
+    },
+    ["artist", "getArtistCounts"]
+  );
 }
 
 /**
  * @memberof CityArtWalks.Actions.Artist.Hooks
  * @function useGenerateArtistAIMetaDescription
- * @description Hook for generating AI-powered artist meta descriptions with proper error handling.
- * Corresponds to POST /api/artist/[id]/meta-description route.
+ * @description Hook for generating AI-powered artist meta descriptions.
  *
- * @param {string} [token=''] - Optional Bearer token for authorization
- * @returns {Function} Async function to generate AI meta description
- * @returns {Promise<string>} returns.result - Generated meta description text
- * @throws {Error} When artist data is invalid or API request encounters an error
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Hooks} - Hooks documentation
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions} - Actions layer documentation
+ * @returns {Object} Mutation function and state
+ * @returns {Function} result.mutate - Function to execute the mutation (artistId, artistName, biography) => Promise
+ * @returns {boolean} result.loading - Loading state of the mutation
+ * @returns {Error} result.error - Error state of the mutation
+ * @returns {Object} result.data - Result data from successful mutation
+ * @throws {Error} When parameters are invalid or API request fails
+ * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions} - Complete documentation
+ * @example
+ * const generateDescription = useGenerateArtistAIMetaDescription();
+ * await generateDescription.mutate(artistId, artistName, biography);
  */
-export function useGenerateArtistAIMetaDescription(token = '') {
-  return async (artistId, artistName, biography) => {
-    try {
-      const result = await requests.generateArtistAIMetaDescription(
-        artistId,
-        artistName,
-        biography,
-        token
-      );
+export function useGenerateArtistAIMetaDescription() {
+  const baseHook = useBaseHook("CityArtWalks.Actions.Artist.Hooks");
 
-      debugLog(
-        'CityArtWalks.Actions.Artist.Hooks.useGenerateArtistAIMetaDescription',
-        'AI meta description generated successfully',
-        {
-          artistId,
-          artistName,
-          biographyLength: biography?.length || 0,
-          metaDescriptionLength: result?.length || 0,
-        }
-      );
+  return baseHook.useMutationWithInvalidation(
+    async (artistId, artistName, biography) => {
+      // Validate parameters
+      if (!artistId || !artistName || !biography) {
+        baseHook.logger.error("useGenerateArtistAIMetaDescription", "artistId, artistName, and biography are required");
+        throw new Error("artistId, artistName, and biography are required");
+      }
 
+      const result = await artistApiClient.generateArtistAIMetaDescription(artistId, artistName, biography);
       return result;
-    } catch (error) {
-      debugError(
-        'CityArtWalks.Actions.Artist.Hooks.useGenerateArtistAIMetaDescription',
-        'Failed to generate AI meta description',
-        {
-          error: error.message,
-          artistId,
-          artistName,
-          biographyLength: biography?.length || 0,
-          hasToken: !!token,
-        }
-      );
-      throw error;
-    }
-  };
+    },
+    ["artist", "getArtist"]
+  );
 }
 
 /**
  * @memberof CityArtWalks.Actions.Artist.Hooks
  * @function useGenerateArtistAIMetaKeywords
- * @description Hook for generating AI-powered artist meta keywords with proper error handling.
- * Corresponds to POST /api/artist/[id]/meta-keywords route.
+ * @description Hook for generating AI-powered artist meta keywords.
  *
- * @param {string} [token=''] - Optional Bearer token for authorization
- * @returns {Function} Async function to generate AI meta keywords
- * @returns {Promise<string>} returns.result - Generated meta keywords text
- * @throws {Error} When artist data is invalid or API request encounters an error
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Hooks} - Hooks documentation
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions} - Actions layer documentation
+ * @returns {Object} Mutation function and state
+ * @returns {Function} result.mutate - Function to execute the mutation (artistId, artistName, biography) => Promise
+ * @returns {boolean} result.loading - Loading state of the mutation
+ * @returns {Error} result.error - Error state of the mutation
+ * @returns {Object} result.data - Result data from successful mutation
+ * @throws {Error} When parameters are invalid or API request fails
+ * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions} - Complete documentation
+ * @example
+ * const generateKeywords = useGenerateArtistAIMetaKeywords();
+ * await generateKeywords.mutate(artistId, artistName, biography);
  */
-export function useGenerateArtistAIMetaKeywords(token = '') {
-  return async (artistId, artistName, biography) => {
-    try {
-      const result = await requests.generateArtistAIMetaKeywords(
-        artistId,
-        artistName,
-        biography,
-        token
-      );
+export function useGenerateArtistAIMetaKeywords() {
+  const baseHook = useBaseHook("CityArtWalks.Actions.Artist.Hooks");
 
-      debugLog(
-        'CityArtWalks.Actions.Artist.Hooks.useGenerateArtistAIMetaKeywords',
-        'AI meta keywords generated successfully',
-        {
-          artistId,
-          artistName,
-          biographyLength: biography?.length || 0,
-          metaKeywordsLength: result?.length || 0,
-        }
-      );
+  return baseHook.useMutationWithInvalidation(
+    async (artistId, artistName, biography) => {
+      // Validate parameters
+      if (!artistId || !artistName || !biography) {
+        baseHook.logger.error("useGenerateArtistAIMetaKeywords", "artistId, artistName, and biography are required");
+        throw new Error("artistId, artistName, and biography are required");
+      }
 
+      const result = await artistApiClient.generateArtistAIMetaKeywords(artistId, artistName, biography);
       return result;
-    } catch (error) {
-      debugError(
-        'CityArtWalks.Actions.Artist.Hooks.useGenerateArtistAIMetaKeywords',
-        'Failed to generate AI meta keywords',
-        {
-          error: error.message,
-          artistId,
-          artistName,
-          biographyLength: biography?.length || 0,
-          hasToken: !!token,
-        }
-      );
-      throw error;
-    }
+    },
+    ["artist", "getArtist"]
+  );
+}
+
+/**
+ * @memberof CityArtWalks.Actions.Artist.Hooks
+ * @function useArtistMutations
+ * @description Hook that returns all artist mutation functions for convenient access.
+ *
+ * @returns {Object} Collection of all artist mutation functions
+ * @returns {Function} result.createArtist - Create artist mutation function
+ * @returns {Function} result.updateArtist - Update artist mutation function
+ * @returns {Function} result.deleteArtist - Delete artist mutation function
+ * @returns {Function} result.incrementViewCount - Increment view count mutation function
+ * @returns {Function} result.generateMetaDescription - Generate AI meta description mutation function
+ * @returns {Function} result.generateMetaKeywords - Generate AI meta keywords mutation function
+ * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions} - Complete documentation
+ * @example
+ * const { createArtist, updateArtist, deleteArtist, incrementViewCount, generateMetaDescription, generateMetaKeywords } = useArtistMutations();
+ * await createArtist.mutate(artistData);
+ * await updateArtist.mutate(artistId, updatedData);
+ * await deleteArtist.mutate(artistId);
+ * await incrementViewCount.mutate(artistId);
+ * await generateMetaDescription.mutate(artistId, artistName, biography);
+ * await generateMetaKeywords.mutate(artistId, artistName, biography);
+ */
+export function useArtistMutations() {
+  const createArtist = useCreateArtist();
+  const updateArtist = useUpdateArtist();
+  const deleteArtist = useDeleteArtist();
+  const incrementViewCount = useIncrementArtistViewCount();
+  const generateMetaDescription = useGenerateArtistAIMetaDescription();
+  const generateMetaKeywords = useGenerateArtistAIMetaKeywords();
+
+  return {
+    createArtist,
+    updateArtist,
+    deleteArtist,
+    incrementViewCount,
+    generateMetaDescription,
+    generateMetaKeywords,
   };
 }

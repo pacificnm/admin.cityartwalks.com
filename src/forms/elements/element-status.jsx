@@ -12,11 +12,9 @@
 import PropTypes from 'prop-types';
 import { Controller, useFormContext } from 'react-hook-form';
 
-import { Box, MenuItem, TextField, CircularProgress } from '@mui/material';
+import { Box, MenuItem, TextField } from '@mui/material';
 
 import ErrorBoundary from 'src/components/error/error-boundary';
-
-import { useAuthContext } from 'src/auth/hooks';
 
 /**
  * @memberof CityArtWalks.Forms.Elements.Status
@@ -87,30 +85,11 @@ export function ElementStatus(props) {
   } = props;
 
   const { control } = useFormContext();
-  const { user, userIsLoading } = useAuthContext();
 
   const labelId = `status-select-label`;
 
-  // Determine if user is admin
-  const isAdmin = user?.role === 'ADMIN';
-
-  // Filter status options based on user role
-  const availableStatuses = STATUS_OPTIONS.filter((status) => !status.adminOnly || isAdmin);
-
-  if (userIsLoading) {
-    return (
-      <TextField
-        fullWidth
-        label={label}
-        disabled
-        slotProps={{
-          input: {
-            endAdornment: <CircularProgress size={20} />,
-          },
-        }}
-      />
-    );
-  }
+  // Show all status options - role-based filtering handled by API
+  const availableStatuses = STATUS_OPTIONS;
 
   return (
     <ErrorBoundary componentName="ElementStatus" errorContext={{ name, label }}>

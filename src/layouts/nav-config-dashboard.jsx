@@ -265,11 +265,11 @@ export const navData = [
       },
       {
         title: 'Email System',
-        path: paths.email,
+        path: paths.email.dashboard,
         icon: <Iconify icon="solar:letter-bold" />,
         allowedRoles: ['ADMIN'],
         children: [
-          { title: 'Dashboard', path: paths.email },
+          { title: 'Dashboard', path: paths.email.dashboard },
           { title: 'User Communications', path: paths.email.users },
           { title: 'Email Management', path: paths.email.management },
           { title: 'Templates', path: paths.email.emailTemplates },

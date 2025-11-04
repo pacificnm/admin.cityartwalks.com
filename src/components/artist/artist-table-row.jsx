@@ -1,42 +1,32 @@
 /**
- * @namespace CityArtWalks.Components.Artist.ArtistTableRow
- * @version 1.1.0
- * @author jaimie garner
+ * @file artist-table-row.jsx
+ * @description Table row component for displaying individual artist data
+ * @namespace CityArtWalks.Components.Artist
+ * @version 1.0.0
+ * @author Jaimie Garner
  */
 
-'use client';
-
-import { useBoolean, usePopover } from 'minimal-shared/hooks';
-
 import Box from '@mui/material/Box';
-import Link from '@mui/material/Link';
+import Chip from '@mui/material/Chip';
 import Stack from '@mui/material/Stack';
 import Avatar from '@mui/material/Avatar';
-import Button from '@mui/material/Button';
-import MenuList from '@mui/material/MenuList';
-import MenuItem from '@mui/material/MenuItem';
-import Checkbox from '@mui/material/Checkbox';
+import Tooltip from '@mui/material/Tooltip';
 import TableRow from '@mui/material/TableRow';
 import TableCell from '@mui/material/TableCell';
+import Typography from '@mui/material/Typography';
 import IconButton from '@mui/material/IconButton';
 
 import { paths } from 'src/routes/paths';
 import { RouterLink } from 'src/routes/components';
 
-import { fTime, formatStr } from 'src/utils/format-time';
+import { EditIcon, ViewIcon, DeleteIcon } from 'src/components/icons';
 
-import { Label } from 'src/components/label';
-import { TableEmptyRows } from 'src/components/table';
-import { ConfirmDialog } from 'src/components/custom-dialog';
-import { CustomPopover } from 'src/components/custom-popover';
-import { EditIcon, DeleteIcon, VerticalFillIcon } from 'src/components/icons';
+// ----------------------------------------------------------------------
 
 /**
- * Gets the appropriate Material-UI color for status values
- * @memberof CityArtWalks.Components.Artist
- * @param {string} status - The status value from entity
- * @returns {string} Material-UI color name
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Schema#Artist} - Database schema reference
+ * @description Returns the color for a status chip based on the status value
+ * @param {string} status - The status value
+ * @returns {string} The color for the chip
  */
 const getStatusColor = (status) => {
   switch (status) {
@@ -44,234 +34,190 @@ const getStatusColor = (status) => {
       return 'success';
     case 'PENDING':
       return 'warning';
-    case 'BANNED':
-      return 'error';
-    case 'REJECTED':
-      return 'error';
+    case 'REVIEW':
+      return 'info';
     case 'ARCHIVED':
       return 'default';
-    case 'REVIEW':
-      return 'warning';
+    case 'BANNED':
+      return 'error';
     case 'DELETED':
+      return 'error';
+    case 'REJECTED':
       return 'error';
     default:
       return 'default';
   }
 };
 
-/**
- * Artist Table Row Component
- *
- * Displays individual artist records within a table with interactive features including
- * selection capabilities, action menus, and delete confirmations. Integrates with the
- * parent table component for state management and data operations.
- *
- * Features:
- * - Row selection with checkbox
- * - Action menu with edit and delete options
- * - Delete confirmation dialog
- * - Status color coding
- * - Featured artist highlighting
- * - Loading state handling
- * - Accessibility support
- *
- * @namespace CityArtWalks.Components.Artist
- * @fileoverview Table row component for artist management
- * @author jaimie garner
- * @version 1.1.0
- *
- * @requires React - React library for component creation
- * @requires @mui/material - Material-UI components for table structure
- * @requires minimal-shared - Shared utilities and hooks
- *
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Components} - Component documentation
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Artist-Model} - Artist model documentation
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Schema#Artist} - Database schema reference
- */
+// ----------------------------------------------------------------------
 
 /**
- * Artist Table Row component
- * Displays individual artist records within a table with actions and selection capabilities.
- *
+ * @description Table row component for displaying individual artist data.
+ * @memberof CityArtWalks.Components.Artist
+ * @function ArtistTableRow
  * @param {Object} props - Component props
- * @param {Object} props.row - Artist data object from database
- * @param {boolean} props.selected - Whether the row is currently selected
- * @param {Function} props.onSelectRow - Handler for row selection toggle
- * @param {Function} props.onDeleteRow - Handler for row deletion
- * @param {string} props.editHref - URL for editing the artist
- * @param {boolean} [props.loading=false] - Loading state for the row
- * @returns {JSX.Element} The table row component
- *
- * @example
- * <ArtistTableRow
- *   row={artistData}
- *   selected={table.selected.includes(artistData.artistId)}
- *   onSelectRow={() => table.onSelectRow(artistData.artistId)}
- *   onDeleteRow={() => handleDeleteRow(artistData.artistId)}
- *   editHref={paths.dashboard.artist.update(artistData.artistId)}
- *   loading={false}
- * />
- *
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Components} - Component documentation
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Artist-Model} - Artist model documentation
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Schema#Artist} - Database schema reference
+ * @param {Object} props.row - Artist data
+ * @param {boolean} props.selected - Whether the row is selected
+ * @param {Function} props.onViewRow - Handler for viewing artist details
+ * @param {Function} props.onEditRow - Handler for editing artist
+ * @param {Function} props.onDeleteRow - Handler for deleting artist
+ * @param {Function} props.onViewUser - Handler for viewing user details
+ * @param {Function} props.onViewImage - Handler for viewing image details
+ * @returns {JSX.Element} The Artist Table Row component.
  */
 export function ArtistTableRow({
   row,
   selected,
-  onSelectRow,
+  onViewRow,
+  onEditRow,
   onDeleteRow,
-  editHref,
-  loading = false,
+  onViewUser,
+  onViewImage,
 }) {
-  // Action menu popover state
-  const menuActions = usePopover();
-
-  // Delete confirmation dialog state
-  const confirmDialog = useBoolean();
-
-  // Early return for loading state
-  if (loading) return <TableEmptyRows />;
-
-  /**
-   * Renders the action menu popover with edit and delete options
-   * @memberof CityArtWalks.Components.Artist
-   * @returns {JSX.Element} Action menu popover component
-   */
-  const renderMenuActions = () => (
-    <CustomPopover
-      open={menuActions.open}
-      anchorEl={menuActions.anchorEl}
-      onClose={menuActions.onClose}
-      slotProps={{ arrow: { placement: 'right-top' } }}
-    >
-      <MenuList>
-        <MenuItem component={RouterLink} href={editHref} onClick={() => menuActions.onClose()}>
-          <EditIcon />
-          Edit
-        </MenuItem>
-
-        <MenuItem
-          onClick={() => {
-            confirmDialog.onTrue();
-            menuActions.onClose();
-          }}
-          sx={{ color: 'error.main' }}
-        >
-          <DeleteIcon />
-          Delete
-        </MenuItem>
-      </MenuList>
-    </CustomPopover>
-  );
-
-  /**
-   * Renders the delete confirmation dialog
-   * @memberof CityArtWalks.Components.Artist
-   * @returns {JSX.Element} Confirmation dialog component
-   */
-  const renderConfirmDialog = () => (
-    <ConfirmDialog
-      open={confirmDialog.value}
-      onClose={confirmDialog.onFalse}
-      title="Delete Artist"
-      content={`Are you sure you want to delete "${row.name || 'this artist'}"? This action cannot be undone.`}
-      action={
-        <Button variant="contained" color="error" onClick={onDeleteRow}>
-          Delete
-        </Button>
-      }
-    />
-  );
-
-  const renderPrimary = (
-    <TableCell padding="checkbox">
-      <Checkbox
-        checked={selected}
-        onClick={onSelectRow}
-        slotProps={{
-          input: {
-            id: `${row.artistId}-checkbox`,
-            'aria-label': `Select ${row.name || row.artistId}`,
-          },
-        }}
-      />
-    </TableCell>
-  );
-
-  const renderArtist = (
-    <TableCell>
-      <Box sx={{ gap: 2, display: 'flex', alignItems: 'center' }}>
-        <Avatar alt={row.name || 'Artist'} src={row.imageUrl || undefined}>
-          {!row.imageUrl && row.name?.[0]?.toUpperCase()}
-        </Avatar>
-        <Stack sx={{ typography: 'body2', flex: '1 1 auto', alignItems: 'flex-start' }}>
-          <Link
-            component={RouterLink}
-            href={paths.art.artist.details(row.slug)}
-            color="inherit"
-            sx={{ cursor: 'pointer' }}
-          >
-            {row.name || 'Unnamed Artist'}
-          </Link>
-          <Box component="span" sx={{ color: 'text.disabled', typography: 'caption' }}>
-            {row.nationality || 'No Nationality Listed'}
-          </Box>
-        </Stack>
-      </Box>
-    </TableCell>
-  );
-
-  const renderViewCount = (
-    <TableCell>
-      <Box sx={{ typography: 'body2' }}>{row.viewCount?.toLocaleString() || 0}</Box>
-    </TableCell>
-  );
-
-  const renderStatus = (
-    <TableCell>
-      <Label variant="soft" color={getStatusColor(row.status)}>
-        {row.status || 'UNKNOWN'}
-      </Label>
-    </TableCell>
-  );
-
-  const renderDates = (
-    <TableCell>
-      <Box sx={{ typography: 'caption', color: 'text.secondary' }}>
-        <Box component="div">Created: {fTime(row.createdAt, formatStr.dateTime)}</Box>
-        <Box component="div">Updated: {fTime(row.updatedAt, formatStr.dateTime)}</Box>
-      </Box>
-    </TableCell>
-  );
-
-  const renderActions = (
-    <TableCell>
-      <Box sx={{ display: 'flex', alignItems: 'center' }}>
-        <IconButton
-          color={menuActions.open ? 'inherit' : 'default'}
-          onClick={menuActions.onOpen}
-          aria-label={`Actions for ${row.name || 'artist'}`}
-        >
-          <VerticalFillIcon />
-        </IconButton>
-      </Box>
-    </TableCell>
-  );
-
   return (
-    <>
-      <TableRow hover selected={selected} aria-checked={selected} tabIndex={-1}>
-        {renderPrimary}
-        {renderArtist}
-        {renderViewCount}
-        {renderStatus}
-        {renderDates}
-        {renderActions}
-      </TableRow>
-
-      {renderMenuActions()}
-      {renderConfirmDialog()}
-    </>
+    <TableRow hover selected={selected}>
+      <TableCell>
+        {row.imageUrl ? (
+          <Tooltip title="Click to view image">
+            <Box
+              component="img"
+              src={row.imageUrl}
+              alt={row.name}
+              onClick={() => onViewImage(row.imageUrl, row.name)}
+              sx={{
+                width: 40,
+                height: 40,
+                borderRadius: 1,
+                objectFit: 'cover',
+                cursor: 'pointer',
+                '&:hover': {
+                  opacity: 0.8,
+                  transform: 'scale(1.05)',
+                  transition: 'all 0.2s ease-in-out',
+                },
+              }}
+            />
+          </Tooltip>
+        ) : (
+          <Box
+            sx={{
+              width: 40,
+              height: 40,
+              borderRadius: 1,
+              bgcolor: 'grey.300',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            N/A
+          </Box>
+        )}
+      </TableCell>
+      <TableCell>
+        <Box
+          component={RouterLink}
+          href={paths.artist.details(row.artistId)}
+          sx={{
+            color: 'primary.main',
+            textDecoration: 'none',
+            fontWeight: 500,
+            '&:hover': {
+              textDecoration: 'underline',
+            },
+          }}
+        >
+          {row.name || 'N/A'}
+        </Box>
+      </TableCell>
+      <TableCell>
+        <Chip
+          label={row.featured ? 'Featured' : 'Not Featured'}
+          color={row.featured ? 'secondary' : 'default'}
+          size="small"
+          sx={{ fontWeight: 600 }}
+        />
+      </TableCell>
+      <TableCell sx={{ fontFamily: 'monospace', fontSize: '0.875rem' }}>
+        {row.slug || 'N/A'}
+      </TableCell>
+      <TableCell>
+        {row.status ? (
+          <Chip
+            label={row.status}
+            color={getStatusColor(row.status)}
+            size="small"
+            sx={{ fontWeight: 600 }}
+          />
+        ) : (
+          'N/A'
+        )}
+      </TableCell>
+      <TableCell>
+        <Stack direction="row" spacing={1} alignItems="center">
+          {row.CreatedByUser ? (
+            <Tooltip
+              title={`Click to view ${row.CreatedByUser.name} (${row.CreatedByUser.email})`}
+            >
+              <Avatar
+                src={row.CreatedByUser.image}
+                alt={row.CreatedByUser.name}
+                onClick={() => onViewUser(row.CreatedByUser.userId)}
+                sx={{ width: 24, height: 24, cursor: 'pointer' }}
+              />
+            </Tooltip>
+          ) : (
+            <Avatar sx={{ width: 24, height: 24, bgcolor: 'grey.300', fontSize: '0.625rem' }}>
+              ?
+            </Avatar>
+          )}
+          <Typography variant="body2">
+            {row.createdAt ? new Date(row.createdAt).toLocaleDateString() : 'N/A'}
+          </Typography>
+        </Stack>
+      </TableCell>
+      <TableCell>
+        <Stack direction="row" spacing={1} alignItems="center">
+          {row.UpdatedByUser ? (
+            <Tooltip
+              title={`Click to view ${row.UpdatedByUser.name} (${row.UpdatedByUser.email})`}
+            >
+              <Avatar
+                src={row.UpdatedByUser.image}
+                alt={row.UpdatedByUser.name}
+                onClick={() => onViewUser(row.UpdatedByUser.userId)}
+                sx={{ width: 24, height: 24, cursor: 'pointer' }}
+              />
+            </Tooltip>
+          ) : (
+            <Avatar sx={{ width: 24, height: 24, bgcolor: 'grey.300', fontSize: '0.625rem' }}>
+              ?
+            </Avatar>
+          )}
+          <Typography variant="body2">
+            {row.updatedAt ? new Date(row.updatedAt).toLocaleDateString() : 'N/A'}
+          </Typography>
+        </Stack>
+      </TableCell>
+      <TableCell align="right">
+        <Stack direction="row" spacing={0.5}>
+          <Tooltip title="View">
+            <IconButton onClick={onViewRow} size="small" color="default">
+              <ViewIcon />
+            </IconButton>
+          </Tooltip>
+          <Tooltip title="Edit">
+            <IconButton onClick={onEditRow} size="small" color="primary">
+              <EditIcon />
+            </IconButton>
+          </Tooltip>
+          <Tooltip title="Delete">
+            <IconButton onClick={onDeleteRow} size="small" color="error">
+              <DeleteIcon />
+            </IconButton>
+          </Tooltip>
+        </Stack>
+      </TableCell>
+    </TableRow>
   );
 }

@@ -12,11 +12,6 @@
 import { useMemo, useEffect } from "react";
 
 import { useBaseHook } from "src/lib/base-hook";
-import {
-  artPieceMaterialQuerySchema,
-  createArtPieceMaterialSchema,
-  updateArtPieceMaterialSchema,
-} from "src/validators/art-piece-material";
 
 import { ArtPieceMaterialApiClient } from "./requests";
 
@@ -58,22 +53,7 @@ export function useGetPaginatedArtPieceMaterials(params = {}, revalidate = 600) 
     refreshKey = null,
   } = params;
 
-  // Validate parameters using Zod schema
-  const validationResult = useMemo(
-    () =>
-      baseHook.validators.validateWithSchema(
-        { page, limit, search, active, createdBy },
-        artPieceMaterialQuerySchema,
-        "useGetPaginatedArtPieceMaterials"
-      ),
-    [baseHook.validators, page, limit, search, active, createdBy]
-  );
-
   const { swrKey } = useMemo(() => {
-    if (!validationResult.success) {
-      return { swrKey: null };
-    }
-
     const key = [
       "getPaginatedArtPieceMaterials",
       page,
@@ -86,7 +66,6 @@ export function useGetPaginatedArtPieceMaterials(params = {}, revalidate = 600) 
     return baseHook.utils.generateKeys(key);
   }, [
     baseHook.utils,
-    validationResult.success,
     page,
     limit,
     search,
@@ -178,21 +157,6 @@ export function useGetArtPieceMaterials(revalidate = 600) {
 export function useGetArtPieceMaterial(artPieceMaterialId, revalidate = 600) {
   const baseHook = useBaseHook("CityArtWalks.Actions.ArtPieceMaterial.Hooks");
 
-  // Validate artPieceMaterialId parameter
-  useEffect(() => {
-    if (
-      artPieceMaterialId &&
-      !baseHook.validators.validateWithSchema(
-        ["string", "number"],
-        artPieceMaterialId,
-        "artPieceMaterialId",
-        "useGetArtPieceMaterial"
-      )
-    ) {
-      // Validation handled by base hook
-    }
-  }, [baseHook.validators, artPieceMaterialId]);
-
   const { swrKey } = useMemo(() => {
     if (!artPieceMaterialId) return { swrKey: null };
     const key = ["getArtPieceMaterial", artPieceMaterialId, revalidate];
@@ -243,16 +207,6 @@ export function useCreateArtPieceMaterial() {
 
   return baseHook.useMutationWithInvalidation(
     async (artPieceMaterial) => {
-      // Validate art piece material data if not FormData
-      if (!(artPieceMaterial instanceof FormData)) {
-        baseHook.validators.validateWithSchema(
-          artPieceMaterial,
-          createArtPieceMaterialSchema,
-          "useCreateArtPieceMaterial",
-          true // throw on error
-        );
-      }
-
       const result = await artPieceMaterialApiClient.createArtPieceMaterial(artPieceMaterial);
       return result;
     },
@@ -285,16 +239,6 @@ export function useUpdateArtPieceMaterial() {
       if (!id) {
         baseHook.logger.error("useUpdateArtPieceMaterial", "ArtPieceMaterial ID is required");
         throw new Error("ArtPieceMaterial ID is required");
-      }
-
-      // Validate art piece material data if not FormData
-      if (!(artPieceMaterial instanceof FormData)) {
-        baseHook.validators.validateWithSchema(
-          artPieceMaterial,
-          updateArtPieceMaterialSchema,
-          "useUpdateArtPieceMaterial",
-          true // throw on error
-        );
       }
 
       const result = await artPieceMaterialApiClient.updateArtPieceMaterial(id, artPieceMaterial);

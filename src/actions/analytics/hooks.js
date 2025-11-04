@@ -1,448 +1,584 @@
 /**
  * @file hooks.js
- * @description Analytics tracking hooks following project patterns
+ * @description SWR-based data fetching hooks for Analytics.
+ * @author Jaimie Garner
+ * @version 2.1.0
  * @namespace CityArtWalks.Actions.Analytics.Hooks
- * @version 2.0.0
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Analytics-Actions} - Complete documentation
+ * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions} - Complete documentation
+ * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Hooks} - Hooks documentation
+ * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Analytics} - Analytics entity documentation
  */
 
-import useSWR from 'swr';
-import { useMemo, useEffect, useCallback } from 'react';
+import { useMemo, useEffect } from "react";
 
-import { useAuthContext } from 'src/auth/hooks';
+import { useBaseHook } from "src/lib/base-hook";
 
-import * as requests from './requests';
+import { AnalyticsApiClient } from "./requests";
 
-const swrOptions = {
-  revalidateIfStale: false,
-  revalidateOnFocus: false,
-  revalidateOnReconnect: false,
-  keepPreviousData: true,
-};
+// Create a single instance to use across all hooks
+const analyticsApiClient = new AnalyticsApiClient();
 
 /**
  * Hook for tracking analytics events.
- * @function useTrackEvent
  * @memberof CityArtWalks.Actions.Analytics.Hooks
- * @returns {Object} Object with trackEvent function
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Analytics-Actions} - Complete documentation
+ * @function useTrackEvent
+ * @description Hook to track analytics events with validation.
+ * @returns {Object} Mutation function and state
+ * @returns {Function} result.mutate - Function to execute the mutation (eventData) => Promise
+ * @returns {boolean} result.loading - Loading state of the mutation
+ * @returns {Error} result.error - Error state of the mutation
+ * @returns {Object} result.data - Result data from successful mutation
+ * @throws {Error} When event data validation fails or API request fails
+ * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions} - Complete documentation
+ * @example
+ * const trackEvent = useTrackEvent();
+ * await trackEvent.mutate(eventData);
  */
 export function useTrackEvent() {
-  const trackEvent = useCallback(async (eventData) => {
-    try {
-      return await requests.trackAnalyticsEvent(eventData);
-    } catch (error) {
-      console.error('[Analytics] Failed to track event?:', error);
-      throw error;
-    }
-  }, []);
+  const baseHook = useBaseHook("CityArtWalks.Actions.Analytics.Hooks");
 
-  return { trackEvent };
+  return baseHook.useMutationWithInvalidation(
+    async (eventData) => {
+      const result = await analyticsApiClient.trackAnalyticsEvent(eventData);
+      return result;
+    },
+    ["analytics", "getErrors"]
+  );
 }
 
 /**
  * Hook for updating analytics user mapping.
- * @function useUpdateUserMapping
  * @memberof CityArtWalks.Actions.Analytics.Hooks
- * @returns {Object} Object with updateUserMapping function
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Analytics-Actions} - Complete documentation
+ * @function useUpdateUserMapping
+ * @description Hook to update analytics user mapping with validation and cache invalidation.
+ *
+ * @returns {Object} Mutation function and state
+ * @returns {Function} result.mutate - Function to execute the mutation (updateData) => Promise
+ * @returns {boolean} result.loading - Loading state of the mutation
+ * @returns {Error} result.error - Error state of the mutation
+ * @returns {Object} result.data - Result data from successful mutation
+ * @throws {Error} When update data validation fails or API request fails
+ * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions} - Complete documentation
+ * @example
+ * const updateUserMapping = useUpdateUserMapping();
+ * await updateUserMapping.mutate(updateData);
  */
 export function useUpdateUserMapping() {
-  const updateUserMapping = useCallback(async (updateData) => {
-    try {
-      return await requests.updateAnalyticsUserMapping(updateData);
-    } catch (error) {
-      console.error('[Analytics] Failed to update user mapping?:', error);
-      throw error;
-    }
-  }, []);
+  const baseHook = useBaseHook("CityArtWalks.Actions.Analytics.Hooks");
 
-  return { updateUserMapping };
-}
-
-/**
- * Hook for getting weekly user analytics.
- * @function useWeeklyUserAnalytics
- * @memberof CityArtWalks.Actions.Analytics.Hooks
- * @param {string} [token=''] - Optional token override
- * @returns {Object} SWR object for weekly user analytics
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Analytics-Actions} - Complete documentation
- */
-export function useWeeklyUserAnalytics(token = '') {
-  const { accessToken } = useAuthContext();
-  const authToken = token || accessToken || '';
-
-  const { data, error, isLoading, mutate } = useSWR(
-    ['analytics', 'users', 'week'],
-    () => requests.getWeeklyUserAnalytics(authToken),
-    swrOptions
-  );
-
-  return useMemo(
-    () => ({
-      data: data?.data || [],
-      error,
-      isLoading,
-      usersEmpty: !isLoading && !data?.length,
-      refreshUsers: mutate,
-    }),
-    [data, error, isLoading, mutate]
-  );
-}
-
-/**
- * Hook for getting weekly pageview analytics.
- * @function useWeeklyPageviewAnalytics
- * @memberof CityArtWalks.Actions.Analytics.Hooks
- * @param {string} [token=''] - Optional token override
- * @returns {Object} SWR object for weekly pageview analytics
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Analytics-Actions} - Complete documentation
- */
-export function useWeeklyPageviewAnalytics(token = '') {
-  const { accessToken } = useAuthContext();
-  const authToken = token || accessToken || '';
-
-  const { data, error, isLoading, mutate } = useSWR(
-    ['analytics', 'pageviews', 'week'],
-    () => requests.getWeeklyPageviewAnalytics(authToken),
-    swrOptions
-  );
-
-  return useMemo(
-    () => ({
-      data: data?.data || [],
-      error,
-      isLoading,
-      usersEmpty: !isLoading && !data?.length,
-      refreshPageviews: mutate,
-    }),
-    [data, error, isLoading, mutate]
-  );
-}
-
-/**
- * Hook for getting top page view segments analytics.
- * @function useTopPageViewSegments
- * @memberof CityArtWalks.Actions.Analytics.Hooks
- * @param {string} [token=''] - Optional token override
- * @returns {Object} SWR object for top page view segments analytics
- */
-export function useTopPageViewSegments(token = '') {
-  const { accessToken } = useAuthContext();
-  const authToken = token || accessToken || '';
-
-  const { data, error, isLoading, mutate } = useSWR(
-    ['analytics', 'pageviewsSegments', 'week'],
-    () => requests.getTopPageViewSegments(authToken),
-    swrOptions
-  );
-
-  return useMemo(
-    () => ({
-      data: data?.data || [],
-      error,
-      isLoading,
-      usersEmpty: !isLoading && !data?.length,
-      refreshPageviewsSegments: mutate,
-    }),
-    [data, error, isLoading, mutate]
-  );
-}
-
-/**
- * Hook for getting errors analytics with pagination and filters.
- * @function useErrorsAnalytics
- * @memberof CityArtWalks.Actions.Analytics.Hooks
- * @param {number} [page=1] - Page number
- * @param {number} [rowsPerPage=10] - Rows per page
- * @param {string} [search=''] - Search string
- * @param {any} [refreshKey] - Optional key to force refresh
- * @param {string} [token=''] - Optional token override
- * @returns {Object} SWR object for errors analytics
- */
-export function useErrorsAnalytics(
-  page = 1,
-  rowsPerPage = 10,
-  search = '',
-  refreshKey,
-  token = ''
-) {
-  const { accessToken } = useAuthContext();
-  const authToken = token || accessToken || '';
-
-  const { data, error, isLoading, mutate } = useSWR(
-    ['analytics', 'errors', 'week', page, rowsPerPage, search, refreshKey],
-    () =>
-      requests.getErrors(
-        { page, rowsPerPage, search, filters: { event: 'error_event' } },
-        authToken
-      ),
-    swrOptions
-  );
-
-  useEffect(() => {
-    if (refreshKey) mutate();
-  }, [refreshKey, mutate]);
-
-  return useMemo(
-    () => ({
-      data: data?.data || [],
-      error,
-      isLoading,
-      usersEmpty: !isLoading && (!data?.data || data?.data?.length === 0),
-      paginationMeta: data?.meta || { total: 0, page, rowsPerPage },
-      mutate,
-    }),
-    [data, error, isLoading, mutate, page, rowsPerPage]
-  );
-}
-
-/**
- * Hook for getting analytics errors with pagination and custom filters.
- * @function useAnalyticsWithFilters
- * @memberof CityArtWalks.Actions.Analytics.Hooks
- * @param {number} [page=1] - Page number for pagination
- * @param {number} [rowsPerPage=10] - Number of rows per page
- * @param {Object} [filters={}] - Additional filter object for analytics errors
- * @param {any} [refreshKey] - Optional key to force refresh (changing this will re-fetch data)
- * @param {string} [token=''] - Optional token override
- * @returns {Object} Analytics errors data, error, loading state, empty state, pagination meta, and refresh function
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Analytics-Actions} - Complete documentation
- */
-export function useAnalyticsWithFilters(
-  page = 1,
-  rowsPerPage = 10,
-  filters = {},
-  refreshKey,
-  token = ''
-) {
-  const { accessToken } = useAuthContext();
-  const authToken = token || accessToken || '';
-
-  const { data, error, isLoading, mutate } = useSWR(
-    ['analytics', 'errors', 'week', page, rowsPerPage, filters, refreshKey],
-    () => requests.getErrors({ page, rowsPerPage, filters }, authToken),
-    swrOptions
-  );
-
-  useEffect(() => {
-    if (refreshKey) mutate();
-  }, [refreshKey, mutate]);
-  return useMemo(
-    () => ({
-      data: data?.data?.data || [],
-      error,
-      isLoading,
-      usersEmpty: !isLoading && (!data?.data?.data || data?.data?.data?.length === 0),
-      paginationMeta: data?.data?.meta || { total: 0, page, rowsPerPage },
-      refreshAnalytics: mutate,
-    }),
-    [data?.data?.data, data?.data?.meta, error, isLoading, mutate, page, rowsPerPage]
-  );
-}
-
-/**
- * Hook for getting weekly time on site analytics.
- * @function useWeeklyTimeOnSiteAnalytics
- * @memberof CityArtWalks.Actions.Analytics.Hooks
- * @param {string} [token=''] - Optional token override
- * @returns {Object} SWR object for weekly time on site analytics
- */
-export function useWeeklyTimeOnSiteAnalytics(token = '') {
-  const { accessToken } = useAuthContext();
-  const authToken = token || accessToken || '';
-
-  const { data, error, isLoading, mutate } = useSWR(
-    ['analytics', 'timeOnPage', 'week'],
-    () => requests.getWeeklyTimeOnSiteAnalytics(authToken),
-    swrOptions
-  );
-
-  return useMemo(
-    () => ({
-      data: data?.data || [],
-      error,
-      isLoading,
-      usersEmpty: !isLoading && !data?.length,
-      refreshTimeOnPage: mutate,
-    }),
-    [data, error, isLoading, mutate]
-  );
-}
-
-/**
- * Hook for getting top browsers analytics.
- * @function useTopBrowsersAnalytics
- * @memberof CityArtWalks.Actions.Analytics.Hooks
- * @param {string} [token=''] - Optional token override
- * @returns {Object} SWR object for top browsers analytics
- */
-export function useTopBrowsersAnalytics(token = '') {
-  const { accessToken } = useAuthContext();
-  const authToken = token || accessToken || '';
-
-  const { data, error, isLoading, mutate } = useSWR(
-    ['analytics', 'browser', 'week'],
-    () => requests.getTopBrowsersAnalytics(authToken),
-    swrOptions
-  );
-
-  return useMemo(
-    () => ({
-      data: data?.data || [],
-      error,
-      isLoading,
-      usersEmpty: !isLoading && !data?.length,
-      refreshBrowsers: mutate,
-    }),
-    [data, error, isLoading, mutate]
-  );
-}
-
-/**
- * Hook for getting device sessions analytics.
- * @function useDeviceSessionsAnalytics
- * @memberof CityArtWalks.Actions.Analytics.Hooks
- * @param {string} [range='7d'] - Time range
- * @param {string} [token=''] - Optional token override
- * @returns {Object} SWR object for device sessions analytics
- */
-export function useDeviceSessionsAnalytics(range = '7d', token = '') {
-  const { accessToken } = useAuthContext();
-  const authToken = token || accessToken || '';
-
-  const { data, error, isLoading, mutate } = useSWR(
-    ['analytics', 'sessionsDevices', range],
-    () => requests.getDeviceSessionsAnalytics(range, authToken),
-    swrOptions
-  );
-
-  return useMemo(
-    () => ({
-      data: data?.data || [],
-      error,
-      isLoading,
-      usersEmpty: !isLoading && !data?.length,
-      refreshDeviceSessions: mutate,
-    }),
-    [data, error, isLoading, mutate]
-  );
-}
-
-/**
- * Hook for getting top referrers analytics.
- * @function useTopReferrersAnalytics
- * @memberof CityArtWalks.Actions.Analytics.Hooks
- * @param {string} [range='7d'] - Time range
- * @param {string} [token=''] - Optional token override
- * @returns {Object} SWR object for top referrers analytics
- */
-export function useTopReferrersAnalytics(range = '7d', token = '') {
-  const { accessToken } = useAuthContext();
-  const authToken = token || accessToken || '';
-
-  const { data, error, isLoading, mutate } = useSWR(
-    ['analytics', 'referrers', range],
-    () => requests.getTopReferrersAnalytics(range, authToken),
-    swrOptions
-  );
-  return useMemo(
-    () => ({
-      data: data?.data || [],
-      error,
-      isLoading,
-      usersEmpty: !isLoading && !data?.length,
-      refreshTopReferrers: mutate,
-    }),
-    [data, error, isLoading, mutate]
-  );
-}
-
-/**
- * Hook for getting visitor analytics.
- * @function useVisitorAnalytics
- * @memberof CityArtWalks.Actions.Analytics.Hooks
- * @param {string} [range='7d'] - Time range
- * @param {string} [token=''] - Optional token override
- * @returns {Object} SWR object for visitor analytics
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Analytics-Actions} - Complete documentation
- */
-export function useVisitorAnalytics(range = '7d', token = '') {
-  const { accessToken } = useAuthContext();
-  const authToken = token || accessToken || '';
-
-  const { data, error, isLoading, mutate } = useSWR(
-    ['analytics', 'visitors', range],
-    () => requests.getVisitorAnalytics(range, authToken),
-    swrOptions
-  );
-
-  return useMemo(
-    () => ({
-      data: data?.data || [],
-      error,
-      isLoading,
-      usersEmpty: !isLoading && !data?.length,
-      refreshVisitors: mutate,
-    }),
-    [data, error, isLoading, mutate]
-  );
-}
-
-/**
- * Hook for getting bounce rate analytics.
- * @function useBounceRateAnalytics
- * @memberof CityArtWalks.Actions.Analytics.Hooks
- * @param {string} [range='7d'] - Time range
- * @param {string} [token=''] - Optional token override
- * @returns {Object} SWR object for bounce rate analytics
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Analytics-Actions} - Complete documentation
- */
-export function useBounceRateAnalytics(range = '7d', token = '') {
-  const { accessToken } = useAuthContext();
-  const authToken = token || accessToken || '';
-
-  const { data, error, isLoading, mutate } = useSWR(
-    ['analytics', 'bounceRate', range],
-    () => requests.getBounceRateAnalytics(range, authToken),
-    swrOptions
-  );
-
-  return useMemo(
-    () => ({
-      data: data?.data || [],
-      error,
-      isLoading,
-      usersEmpty: !isLoading && !data?.length,
-      refreshBounceRate: mutate,
-    }),
-    [data, error, isLoading, mutate]
-  );
-}
-
-/**
- * Hook for deleting an analytics record by ID.
- * @function useDeleteAnalytics
- * @memberof CityArtWalks.Actions.Analytics.Hooks
- * @param {string} [token=''] - Optional token override
- * @returns {Object} Object with deleteAnalytics function
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Analytics-Actions} - Complete documentation
- */
-export function useDeleteAnalytics(token = '') {
-  const { accessToken } = useAuthContext();
-  const authToken = token || accessToken || '';
-
-  const deleteAnalytics = useCallback(
-    async (analyticsId) => {
-      try {
-        return await requests.deleteAnalytics(analyticsId, authToken);
-      } catch (error) {
-        console.error('[Analytics] Failed to delete analytics record?:', error);
-        throw error;
-      }
+  return baseHook.useMutationWithInvalidation(
+    async (updateData) => {
+      const result = await analyticsApiClient.updateAnalyticsUserMapping(updateData);
+      return result;
     },
-    [authToken]
+    ["analytics", "getErrors"]
   );
+}
 
-  return { deleteAnalytics };
+/**
+ * @memberof CityArtWalks.Actions.Analytics.Hooks
+ * @function useWeeklyUserAnalytics
+ * @description Hook to get weekly user analytics with IndexedDB caching.
+ *
+ * @param {number} [revalidate=600] - Optional ISR revalidate time in seconds
+ * @returns {Object} Result including loading states, errors, and analytics data
+ * @throws {Error} When API request fails
+ * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions} - Complete documentation
+ */
+export function useWeeklyUserAnalytics(revalidate = 600) {
+  const baseHook = useBaseHook("CityArtWalks.Actions.Analytics.Hooks");
+
+  const { swrKey } = useMemo(() => {
+    const key = ["getWeeklyUserAnalytics", revalidate];
+    return baseHook.utils.generateKeys(key);
+  }, [baseHook.utils, revalidate]);
+
+  const { data, isLoading, error, isValidating, mutate } =
+    baseHook.useSWRWithCache(
+      swrKey,
+      async () => {
+        const response = await analyticsApiClient.getWeeklyUserAnalytics(revalidate);
+        return response;
+      },
+      revalidate
+    );
+
+  return useMemo(() => {
+    const results = data?.results || {};
+    return {
+      data: results.data || [],
+      error,
+      isLoading,
+      isValidating,
+      usersEmpty: !isLoading && (!results.data || results.data.length === 0),
+      mutate,
+    };
+  }, [data, error, isLoading, isValidating, mutate]);
+}
+
+/**
+ * @memberof CityArtWalks.Actions.Analytics.Hooks
+ * @function useWeeklyPageviewAnalytics
+ * @description Hook to get weekly pageview analytics with IndexedDB caching.
+ *
+ * @param {number} [revalidate=600] - Optional ISR revalidate time in seconds
+ * @returns {Object} Result including loading states, errors, and analytics data
+ * @throws {Error} When API request fails
+ * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions} - Complete documentation
+ */
+export function useWeeklyPageviewAnalytics(revalidate = 600) {
+  const baseHook = useBaseHook("CityArtWalks.Actions.Analytics.Hooks");
+
+  const { swrKey } = useMemo(() => {
+    const key = ["getWeeklyPageviewAnalytics", revalidate];
+    return baseHook.utils.generateKeys(key);
+  }, [baseHook.utils, revalidate]);
+
+  const { data, isLoading, error, isValidating, mutate } =
+    baseHook.useSWRWithCache(
+      swrKey,
+      async () => {
+        const response = await analyticsApiClient.getWeeklyPageviewAnalytics(revalidate);
+        return response;
+      },
+      revalidate
+    );
+
+  return useMemo(() => {
+    const results = data?.results || {};
+    return {
+      data: results.data || [],
+      error,
+      isLoading,
+      isValidating,
+      usersEmpty: !isLoading && (!results.data || results.data.length === 0),
+      mutate,
+    };
+  }, [data, error, isLoading, isValidating, mutate]);
+}
+
+/**
+ * @memberof CityArtWalks.Actions.Analytics.Hooks
+ * @function useTopPageViewSegments
+ * @description Hook to get top page view segments analytics with IndexedDB caching.
+ *
+ * @param {number} [revalidate=600] - Optional ISR revalidate time in seconds
+ * @returns {Object} Result including loading states, errors, and analytics data
+ * @throws {Error} When API request fails
+ * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions} - Complete documentation
+ */
+export function useTopPageViewSegments(revalidate = 600) {
+  const baseHook = useBaseHook("CityArtWalks.Actions.Analytics.Hooks");
+
+  const { swrKey } = useMemo(() => {
+    const key = ["getTopPageViewSegments", revalidate];
+    return baseHook.utils.generateKeys(key);
+  }, [baseHook.utils, revalidate]);
+
+  const { data, isLoading, error, isValidating, mutate } =
+    baseHook.useSWRWithCache(
+      swrKey,
+      async () => {
+        const response = await analyticsApiClient.getTopPageViewSegments(revalidate);
+        return response;
+      },
+      revalidate
+    );
+
+  return useMemo(() => {
+    const results = data?.results || {};
+    return {
+      data: results.data || [],
+      error,
+      isLoading,
+      isValidating,
+      usersEmpty: !isLoading && (!results.data || results.data.length === 0),
+      mutate,
+    };
+  }, [data, error, isLoading, isValidating, mutate]);
+}
+
+/**
+ * @memberof CityArtWalks.Actions.Analytics.Hooks
+ * @function useErrorsAnalytics
+ * @description Hook to get errors analytics with pagination and filtering, caching via IndexedDB.
+ *
+ * @param {Object} params - Filter parameters
+ * @param {number} [params.page=1] - Page number
+ * @param {number} [params.limit=10] - Results per page limit
+ * @param {string} [params.event=''] - Event filter
+ * @param {string} [params.type=''] - Type filter
+ * @param {string} [params.path=''] - Path filter
+ * @param {string} [params.visitorId=''] - Visitor ID filter
+ * @param {string} [params.userId=''] - User ID filter
+ * @param {string} [params.startDate=''] - Start date filter
+ * @param {string} [params.endDate=''] - End date filter
+ * @param {string|null} [params.refreshKey=null] - Key to trigger refresh
+ * @param {number} [revalidate=600] - Optional ISR revalidate time in seconds
+ * @returns {Object} Result including loading states, errors, and complete API results
+ * @returns {Object} result.results - Complete API results object (data, pagination, performance, query metadata)
+ * @returns {boolean} result.errorsLoading - Loading state
+ * @returns {Error} result.errorsError - Error state
+ * @returns {boolean} result.errorsValidating - Validation state
+ * @returns {boolean} result.errorsEmpty - Empty state (no data)
+ * @returns {Function} result.mutate - SWR mutate function
+ * @throws {Error} When parameter validation fails
+ * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions} - Complete documentation
+ */
+export function useErrorsAnalytics(params = {}, revalidate = 600) {
+  const baseHook = useBaseHook("CityArtWalks.Actions.Analytics.Hooks");
+
+  const {
+    page = 1,
+    limit = 10,
+    event = "",
+    type = "",
+    path = "",
+    visitorId = "",
+    userId = "",
+    startDate = "",
+    endDate = "",
+    refreshKey = null,
+  } = params;
+
+  const { swrKey } = useMemo(() => {
+    const key = [
+      "getErrors",
+      page,
+      limit,
+      event,
+      type,
+      path,
+      visitorId,
+      userId,
+      startDate,
+      endDate,
+      revalidate,
+    ];
+    return baseHook.utils.generateKeys(key);
+  }, [
+    baseHook.utils,
+    page,
+    limit,
+    event,
+    type,
+    path,
+    visitorId,
+    userId,
+    startDate,
+    endDate,
+    revalidate,
+  ]);
+
+  const { data, isLoading, error, isValidating, mutate } =
+    baseHook.useSWRWithCache(
+      swrKey,
+      async () => {
+        const response = await analyticsApiClient.getErrors(
+          { page, limit, event, type, path, visitorId, userId, startDate, endDate },
+          revalidate
+        );
+        return response;
+      },
+      revalidate
+    );
+
+  useEffect(() => {
+    if (refreshKey) mutate();
+  }, [refreshKey, mutate]);
+
+  return useMemo(() => {
+    const results = data?.results || {};
+    return {
+      results, // Complete API results object with data, pagination, performance, etc.
+      errorsLoading: isLoading,
+      errorsError: error,
+      errorsValidating: isValidating,
+      errorsEmpty: !isLoading && (!results.data || results.data.length === 0),
+      mutate,
+    };
+  }, [data, isLoading, error, isValidating, mutate]);
+}
+
+/**
+ * @memberof CityArtWalks.Actions.Analytics.Hooks
+ * @function useWeeklyTimeOnSiteAnalytics
+ * @description Hook to get weekly time on site analytics with IndexedDB caching.
+ *
+ * @param {number} [revalidate=600] - Optional ISR revalidate time in seconds
+ * @returns {Object} Result including loading states, errors, and analytics data
+ * @throws {Error} When API request fails
+ * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions} - Complete documentation
+ */
+export function useWeeklyTimeOnSiteAnalytics(revalidate = 600) {
+  const baseHook = useBaseHook("CityArtWalks.Actions.Analytics.Hooks");
+
+  const { swrKey } = useMemo(() => {
+    const key = ["getWeeklyTimeOnSiteAnalytics", revalidate];
+    return baseHook.utils.generateKeys(key);
+  }, [baseHook.utils, revalidate]);
+
+  const { data, isLoading, error, isValidating, mutate } =
+    baseHook.useSWRWithCache(
+      swrKey,
+      async () => {
+        const response = await analyticsApiClient.getWeeklyTimeOnSiteAnalytics(revalidate);
+        return response;
+      },
+      revalidate
+    );
+
+  return useMemo(() => {
+    const results = data?.results || {};
+    return {
+      data: results.data || [],
+      error,
+      isLoading,
+      isValidating,
+      usersEmpty: !isLoading && (!results.data || results.data.length === 0),
+      mutate,
+    };
+  }, [data, error, isLoading, isValidating, mutate]);
+}
+
+/**
+ * @memberof CityArtWalks.Actions.Analytics.Hooks
+ * @function useTopBrowsersAnalytics
+ * @description Hook to get top browsers analytics with IndexedDB caching.
+ *
+ * @param {number} [revalidate=600] - Optional ISR revalidate time in seconds
+ * @returns {Object} Result including loading states, errors, and analytics data
+ * @throws {Error} When API request fails
+ * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions} - Complete documentation
+ */
+export function useTopBrowsersAnalytics(revalidate = 600) {
+  const baseHook = useBaseHook("CityArtWalks.Actions.Analytics.Hooks");
+
+  const { swrKey } = useMemo(() => {
+    const key = ["getTopBrowsersAnalytics", revalidate];
+    return baseHook.utils.generateKeys(key);
+  }, [baseHook.utils, revalidate]);
+
+  const { data, isLoading, error, isValidating, mutate } =
+    baseHook.useSWRWithCache(
+      swrKey,
+      async () => {
+        const response = await analyticsApiClient.getTopBrowsersAnalytics(revalidate);
+        return response;
+      },
+      revalidate
+    );
+
+  return useMemo(() => {
+    const results = data?.results || {};
+    return {
+      data: results.data || [],
+      error,
+      isLoading,
+      isValidating,
+      usersEmpty: !isLoading && (!results.data || results.data.length === 0),
+      mutate,
+    };
+  }, [data, error, isLoading, isValidating, mutate]);
+}
+
+/**
+ * @memberof CityArtWalks.Actions.Analytics.Hooks
+ * @function useDeviceSessionsAnalytics
+ * @description Hook to get device sessions analytics with IndexedDB caching.
+ *
+ * @param {number} [revalidate=600] - Optional ISR revalidate time in seconds
+ * @returns {Object} Result including loading states, errors, and analytics data
+ * @throws {Error} When API request fails
+ * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions} - Complete documentation
+ */
+export function useDeviceSessionsAnalytics(revalidate = 600) {
+  const baseHook = useBaseHook("CityArtWalks.Actions.Analytics.Hooks");
+
+  const { swrKey } = useMemo(() => {
+    const key = ["getDeviceSessionsAnalytics", revalidate];
+    return baseHook.utils.generateKeys(key);
+  }, [baseHook.utils, revalidate]);
+
+  const { data, isLoading, error, isValidating, mutate } =
+    baseHook.useSWRWithCache(
+      swrKey,
+      async () => {
+        const response = await analyticsApiClient.getDeviceSessionsAnalytics(revalidate);
+        return response;
+      },
+      revalidate
+    );
+
+  return useMemo(() => {
+    const results = data?.results || {};
+    return {
+      data: results.data || [],
+      error,
+      isLoading,
+      isValidating,
+      usersEmpty: !isLoading && (!results.data || results.data.length === 0),
+      mutate,
+    };
+  }, [data, error, isLoading, isValidating, mutate]);
+}
+
+/**
+ * @memberof CityArtWalks.Actions.Analytics.Hooks
+ * @function useTopReferrersAnalytics
+ * @description Hook to get top referrers analytics with IndexedDB caching.
+ *
+ * @param {number} [revalidate=600] - Optional ISR revalidate time in seconds
+ * @returns {Object} Result including loading states, errors, and analytics data
+ * @throws {Error} When API request fails
+ * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions} - Complete documentation
+ */
+export function useTopReferrersAnalytics(revalidate = 600) {
+  const baseHook = useBaseHook("CityArtWalks.Actions.Analytics.Hooks");
+
+  const { swrKey } = useMemo(() => {
+    const key = ["getTopReferrersAnalytics", revalidate];
+    return baseHook.utils.generateKeys(key);
+  }, [baseHook.utils, revalidate]);
+
+  const { data, isLoading, error, isValidating, mutate } =
+    baseHook.useSWRWithCache(
+      swrKey,
+      async () => {
+        const response = await analyticsApiClient.getTopReferrersAnalytics(revalidate);
+        return response;
+      },
+      revalidate
+    );
+
+  return useMemo(() => {
+    const results = data?.results || {};
+    return {
+      data: results.data || [],
+      error,
+      isLoading,
+      isValidating,
+      usersEmpty: !isLoading && (!results.data || results.data.length === 0),
+      mutate,
+    };
+  }, [data, error, isLoading, isValidating, mutate]);
+}
+
+/**
+ * @memberof CityArtWalks.Actions.Analytics.Hooks
+ * @function useVisitorAnalytics
+ * @description Hook to get visitor analytics with IndexedDB caching.
+ *
+ * @param {string} [range='7d'] - Time range for analytics
+ * @param {number} [revalidate=600] - Optional ISR revalidate time in seconds
+ * @returns {Object} Result including loading states, errors, and analytics data
+ * @throws {Error} When API request fails
+ * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions} - Complete documentation
+ */
+export function useVisitorAnalytics(range = "7d", revalidate = 600) {
+  const baseHook = useBaseHook("CityArtWalks.Actions.Analytics.Hooks");
+
+  const { swrKey } = useMemo(() => {
+    const key = ["getVisitorAnalytics", range, revalidate];
+    return baseHook.utils.generateKeys(key);
+  }, [baseHook.utils, range, revalidate]);
+
+  const { data, isLoading, error, isValidating, mutate } =
+    baseHook.useSWRWithCache(
+      swrKey,
+      async () => {
+        const response = await analyticsApiClient.getVisitorAnalytics(range, revalidate);
+        return response;
+      },
+      revalidate
+    );
+
+  return useMemo(() => {
+    const results = data?.results || {};
+    return {
+      data: results.data || [],
+      error,
+      isLoading,
+      isValidating,
+      usersEmpty: !isLoading && (!results.data || results.data.length === 0),
+      mutate,
+    };
+  }, [data, error, isLoading, isValidating, mutate]);
+}
+
+/**
+ * @memberof CityArtWalks.Actions.Analytics.Hooks
+ * @function useBounceRateAnalytics
+ * @description Hook to get bounce rate analytics with IndexedDB caching.
+ *
+ * @param {string} [range='7d'] - Time range for analytics
+ * @param {number} [revalidate=600] - Optional ISR revalidate time in seconds
+ * @returns {Object} Result including loading states, errors, and analytics data
+ * @throws {Error} When API request fails
+ * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions} - Complete documentation
+ */
+export function useBounceRateAnalytics(range = "7d", revalidate = 600) {
+  const baseHook = useBaseHook("CityArtWalks.Actions.Analytics.Hooks");
+
+  const { swrKey } = useMemo(() => {
+    const key = ["getBounceRateAnalytics", range, revalidate];
+    return baseHook.utils.generateKeys(key);
+  }, [baseHook.utils, range, revalidate]);
+
+  const { data, isLoading, error, isValidating, mutate } =
+    baseHook.useSWRWithCache(
+      swrKey,
+      async () => {
+        const response = await analyticsApiClient.getBounceRateAnalytics(range, revalidate);
+        return response;
+      },
+      revalidate
+    );
+
+  return useMemo(() => {
+    const results = data?.results || {};
+    return {
+      data: results.data || [],
+      error,
+      isLoading,
+      isValidating,
+      usersEmpty: !isLoading && (!results.data || results.data.length === 0),
+      mutate,
+    };
+  }, [data, error, isLoading, isValidating, mutate]);
+}
+
+/**
+ * Hook for deleting an analytics record.
+ * @memberof CityArtWalks.Actions.Analytics.Hooks
+ * @function useDeleteAnalytics
+ * @description Hook to delete an analytics record with cache invalidation.
+ *
+ * @returns {Object} Mutation function and state
+ * @returns {Function} result.mutate - Function to execute the mutation (analyticsId) => Promise
+ * @returns {boolean} result.loading - Loading state of the mutation
+ * @returns {Error} result.error - Error state of the mutation
+ * @returns {Object} result.data - Result data from successful mutation
+ * @throws {Error} When analytics ID is missing or API request fails
+ * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions} - Complete documentation
+ * @example
+ * const deleteAnalytics = useDeleteAnalytics();
+ * await deleteAnalytics.mutate(analyticsId);
+ */
+export function useDeleteAnalytics() {
+  const baseHook = useBaseHook("CityArtWalks.Actions.Analytics.Hooks");
+
+  return baseHook.useMutationWithInvalidation(
+    async (analyticsId) => {
+      // Validate parameters
+      if (!analyticsId) {
+        baseHook.logger.error("useDeleteAnalytics", "Analytics ID is required");
+        throw new Error("Analytics ID is required");
+      }
+
+      const result = await analyticsApiClient.deleteAnalytics(analyticsId);
+      return result;
+    },
+    ["analytics", "getErrors"]
+  );
 }

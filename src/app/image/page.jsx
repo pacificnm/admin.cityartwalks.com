@@ -3,7 +3,7 @@
  * Route: /dashboard/image
  */
 
-import { ImageHomeView } from 'src/sections/image/image-home-view';
+import { ImageHomeView } from '@/sections/image/list';
 
 export const metadata = {
   title: 'Dashboard: Images',

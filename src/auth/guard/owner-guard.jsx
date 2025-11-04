@@ -1,13 +1,12 @@
 'use client';
 
 import PropTypes from 'prop-types';
+import { useUser } from '@auth0/nextjs-auth0/client';
 
 import Box from '@mui/material/Box';
 import CircularProgress from '@mui/material/CircularProgress';
 
 import { debugWarn } from 'src/lib/debug';
-
-import { useAuthContext } from 'src/auth/hooks';
 
 /**
  * OwnerGuard - Enforces ownership-based access control for protected content.
@@ -45,7 +44,7 @@ import { useAuthContext } from 'src/auth/hooks';
 export function OwnerGuard(props) {
   const { userId, children, showLoader = true } = props;
 
-  const { user, loading } = useAuthContext();
+  const { user, isLoading: loading } = useUser();
 
   // Show loading while auth system is still loading
   if (loading && showLoader) {
@@ -77,8 +76,10 @@ export function OwnerGuard(props) {
 
   // Check if current user's ID matches the provided userId or if user is admin
   // Convert both to strings for comparison to handle different data types
-  const currentUserId = user.userId;
-  const currentUserRole = user.role;
+  // Extract Auth0 user data
+  const currentUserId = user.sub || user.userId;
+  const userRoles = user['https://pdxartwalks.com/roles'] || user['https://cityartwalks.com/roles'] || user.roles || [];
+  const currentUserRole = userRoles[0] || 'public';
   const ownerUserId = String(userId);
   const userIdToCheck = String(currentUserId);
 

@@ -27,8 +27,6 @@ import { useGenerateArtistAIMetaDescription } from 'src/actions/artist/hooks';
 import { toast } from 'src/components/snackbar';
 import ErrorBoundary from 'src/components/error/error-boundary';
 
-import { useAuthContext } from 'src/auth/hooks';
-
 /**
  * @memberof CityArtWalks.Forms.Elements.ArtistMetaDescription
  * @function ElementArtistMetaDescription
@@ -86,15 +84,14 @@ export function ElementArtistMetaDescription({
   sx,
   ...other
 }) {
-  // Authentication and form context
-  const { accessToken } = useAuthContext();
+  // Form context
   const { control, setValue, watch } = useFormContext();
 
   // Local state for AI generation
   const [loading, setLoading] = useState(false);
 
   // Use the AI hook
-  const generateAIMetaDescription = useGenerateArtistAIMetaDescription(accessToken);
+  const generateAIMetaDescription = useGenerateArtistAIMetaDescription();
 
   // Watch the biography field for AI generation
   const biographyContent = watch(biographyFieldName);

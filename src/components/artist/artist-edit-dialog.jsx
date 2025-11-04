@@ -1,73 +1,62 @@
 /**
+ * @file artist-edit-dialog.jsx
+ * @description Dialog component for editing artist information
+ * @namespace CityArtWalks.Components.Artist
  * @version 1.0.0
- * @author [Jaimie Garner]
- * @namespace CityArtWalks.Sections.Dashboard.Artist.ArtistEditDialog
+ * @author Jaimie Garner
  */
 
-'use client';
-
+import Box from '@mui/material/Box';
 import Dialog from '@mui/material/Dialog';
+import IconButton from '@mui/material/IconButton';
 import DialogTitle from '@mui/material/DialogTitle';
 import DialogContent from '@mui/material/DialogContent';
+import CircularProgress from '@mui/material/CircularProgress';
 
-import { ArtistForm } from 'src/forms/artist';
+import { ArtistForm } from 'src/forms/artist/artist-form';
 
-import { OwnerGuard } from 'src/auth/guard';
+// ----------------------------------------------------------------------
+
 /**
- * @memberof CityArtWalks.Sections.Dashboard.Artist.ArtistEditDialog
- * @description ArtistEditDialog component renders a dialog for creating or editing artist details.
- * When creating (currentArtist has no artistId), the form is accessible to all authenticated users.
- * When editing (currentArtist has artistId), the form is protected by OwnerGuard.
- *
- * @param {Object} props - The component props.
- * @param {Object} props.currentArtist - The current artist data (null/empty for creation).
- * @param {boolean} props.open - Boolean indicating if the dialog is open.
- * @param {Function} [props.onSuccess] - Function to call when artist is successfully created/updated.
- * @param {Function} [props.onCancel] - Function to call when dialog is canceled/closed.
- * @param {Function} [props.onClose] - Legacy prop - used for both success and cancel if onSuccess/onCancel not provided.
- * @returns {JSX.Element} The rendered component.
+ * @description Dialog component for editing an artist with form integration
+ * @memberof CityArtWalks.Components.Artist
+ * @function ArtistEditDialog
+ * @param {Object} props - Component props
+ * @param {boolean} props.open - Whether the dialog is open
+ * @param {Function} props.onClose - Handler for closing the dialog
+ * @param {Object} props.artist - Artist data to edit
+ * @param {boolean} props.loading - Whether artist data is loading
+ * @param {Function} props.onSuccess - Handler for successful edit
+ * @returns {JSX.Element} The Artist Edit Dialog component.
  */
-export function ArtistEditDialog({ currentArtist, open, onSuccess, onCancel, onClose }) {
-  const isEdit = Boolean(currentArtist?.artistId);
-  const dialogTitle = isEdit ? 'Edit Artist' : 'Create Artist';
-
-  // Handle backward compatibility with onClose prop
-  const handleSuccess = onSuccess || onClose;
-  const handleCancel = onCancel || onClose;
-
+export function ArtistEditDialog({ open, onClose, artist, loading, onSuccess }) {
   return (
-    <Dialog fullWidth maxWidth="md" open={open} onClose={handleCancel}>
-      <DialogTitle>{dialogTitle}</DialogTitle>
+    <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
+      <DialogTitle>
+        Edit Artist
+        <IconButton
+          onClick={onClose}
+          sx={{
+            position: 'absolute',
+            right: 8,
+            top: 8,
+            color: (theme) => theme.palette.grey[500],
+          }}
+        >
+          ✕
+        </IconButton>
+      </DialogTitle>
       <DialogContent>
-        {isEdit ? (
-          // For legacy artists without createdBy, or for proper ownership check
-          currentArtist?.createdBy === null ? (
-            // Legacy artist without createdBy - allow admin access
-            <ArtistForm
-              currentArtist={currentArtist}
-              onSuccess={handleSuccess}
-              onCancel={handleCancel}
-            />
-          ) : (
-            // Normal ownership check for artists with createdBy field
-            <OwnerGuard
-              userId={currentArtist?.createdBy}
-              showError={false}
-              fallback={<div>Access denied or loading authentication...</div>}
-            >
-              <ArtistForm
-                currentArtist={currentArtist}
-                onSuccess={handleSuccess}
-                onCancel={handleCancel}
-              />
-            </OwnerGuard>
-          )
+        {loading ? (
+          <Box sx={{ p: 3, textAlign: 'center' }}>
+            <CircularProgress size={40} />
+          </Box>
+        ) : artist ? (
+          <Box sx={{ p: 3 }}>
+            <ArtistForm currentArtist={artist} onSuccess={onSuccess} onCancel={onClose} />
+          </Box>
         ) : (
-          <ArtistForm
-            currentArtist={currentArtist}
-            onSuccess={handleSuccess}
-            onCancel={handleCancel}
-          />
+          <Box sx={{ p: 3, textAlign: 'center' }}>Failed to load artist data</Box>
         )}
       </DialogContent>
     </Dialog>

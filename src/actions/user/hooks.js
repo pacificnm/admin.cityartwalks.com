@@ -12,11 +12,6 @@
 import { useMemo, useEffect } from "react";
 
 import { useBaseHook } from "src/lib/base-hook";
-import {
-  userQuerySchema,
-  createUserSchema,
-  updateUserSchema,
-} from "src/validators/user";
 
 import { UserApiClient } from "./requests";
 
@@ -72,32 +67,7 @@ export function useGetPaginatedUsers(params = {}, revalidate = 600) {
     refreshKey = null,
   } = params;
 
-  // Validate parameters using Zod schema
-  const validationResult = useMemo(
-    () =>
-      baseHook.validators.validateWithSchema(
-        { page, limit, search, role, status, countryId, stateId, cityId },
-        userQuerySchema,
-        "useGetPaginatedUsers"
-      ),
-    [
-      baseHook.validators,
-      page,
-      limit,
-      search,
-      role,
-      status,
-      countryId,
-      stateId,
-      cityId,
-    ]
-  );
-
   const { swrKey } = useMemo(() => {
-    if (!validationResult.success) {
-      return { swrKey: null, cacheKey: null };
-    }
-
     const key = [
       "getPaginatedUsers",
       page,
@@ -113,7 +83,6 @@ export function useGetPaginatedUsers(params = {}, revalidate = 600) {
     return baseHook.utils.generateKeys(key);
   }, [
     baseHook.utils,
-    validationResult.success,
     page,
     limit,
     search,
@@ -207,21 +176,6 @@ export function useGetUsers(revalidate = 600) {
  */
 export function useGetUser(userId, revalidate = 600) {
   const baseHook = useBaseHook("CityArtWalks.Actions.User.Hooks");
-
-  // Validate userId parameter
-  useEffect(() => {
-    if (
-      userId &&
-      !baseHook.validators.validateWithSchema(
-        ["string", "number"],
-        userId,
-        "userId",
-        "useGetUser"
-      )
-    ) {
-      // Validation handled by base hook
-    }
-  }, [baseHook.validators, userId]);
 
   const { swrKey } = useMemo(() => {
     if (!userId) return { swrKey: null };
@@ -328,18 +282,6 @@ export function useGetUserAvatar(userId, revalidate = 600) {
 export function useGetUserByEmail(email, revalidate = 600) {
   const baseHook = useBaseHook("CityArtWalks.Actions.User.Hooks");
 
-  // Validate email parameter
-  useEffect(() => {
-    if (email) {
-      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (!emailRegex.test(email)) {
-        baseHook.logger.error("useGetUserByEmail", "Invalid email format", {
-          email: baseHook.utils.redactSensitive(email, "email"),
-        });
-      }
-    }
-  }, [baseHook.logger, baseHook.utils, email]);
-
   const { swrKey } = useMemo(() => {
     if (!email) return { swrKey: null };
     const key = ["getUserByEmail", email, revalidate];
@@ -388,16 +330,6 @@ export function useCreateUser() {
 
   return baseHook.useMutationWithInvalidation(
     async (user) => {
-      // Validate user data if not FormData
-      if (!(user instanceof FormData)) {
-        baseHook.validators.validateWithSchema(
-          user,
-          createUserSchema,
-          "useCreateUser",
-          true // throw on error
-        );
-      }
-
       const result = await userApiClient.createUser(user);
       return result;
     },
@@ -430,16 +362,6 @@ export function useUpdateUser() {
       if (!id) {
         baseHook.logger.error("useUpdateUser", "User ID is required");
         throw new Error("User ID is required");
-      }
-
-      // Validate user data if not FormData
-      if (!(user instanceof FormData)) {
-        baseHook.validators.validateWithSchema(
-          user,
-          updateUserSchema,
-          "useUpdateUser",
-          true // throw on error
-        );
       }
 
       const result = await userApiClient.updateUser(id, user);

@@ -224,50 +224,21 @@ export function getCreateArtistDefaults() {
  * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Artist-Model} - Artist model documentation
  */
 export const artistQuerySchema = z.object({
-  page: z
-    .string()
-    .transform((val) => parseInt(val, 10))
-    .pipe(z.number().min(1))
-    .optional(),
-  limit: z
-    .string()
-    .transform((val) => parseInt(val, 10))
-    .pipe(z.number().min(1).max(100))
-    .optional(),
+  page: z.number().int().min(1).optional(),
+  limit: z.number().int().min(1).max(100).optional(),
   search: z.string().optional(),
   status: z
     .enum(['ACTIVE', 'ARCHIVED', 'BANNED', 'DELETED', 'PENDING', 'REJECTED', 'REVIEW'])
     .optional(),
-  userId: z
-    .union([z.string().transform((val) => parseInt(val, 10)), z.number()])
-    .pipe(z.number().int())
-    .optional(),
-  cityId: z
-    .union([z.string().transform((val) => parseInt(val, 10)), z.number()])
-    .pipe(z.number().int())
-    .optional(),
-  countryId: z
-    .union([z.string().transform((val) => parseInt(val, 10)), z.number()])
-    .pipe(z.number().int())
-    .optional(),
-  stateId: z
-    .union([z.string().transform((val) => parseInt(val, 10)), z.number()])
-    .pipe(z.number().int())
-    .optional(),
-  featured: z
-    .union([z.string().transform((val) => val === 'true'), z.boolean()])
-    .pipe(z.boolean())
-    .optional(),
+  userId: z.number().int().optional(),
+  cityId: z.number().int().optional(),
+  countryId: z.number().int().optional(),
+  stateId: z.number().int().optional(),
+  featured: z.boolean().optional(),
   createdAt: z.coerce.date().optional(),
   updatedAt: z.coerce.date().optional(),
-  createdBy: z
-    .union([z.string().transform((val) => parseInt(val, 10)), z.number()])
-    .pipe(z.number().int())
-    .optional(),
-  updatedBy: z
-    .union([z.string().transform((val) => parseInt(val, 10)), z.number()])
-    .pipe(z.number().int())
-    .optional(),
+  createdBy: z.number().int().optional(),
+  updatedBy: z.number().int().optional(),
   sortBy: z.enum(['name', 'createdAt', 'updatedAt', 'viewCount', 'status']).optional(),
   sortOrder: z.enum(['asc', 'desc']).optional(),
 });

@@ -1,495 +1,318 @@
 /**
- * React hooks for Country operations using SWR and IndexedDB caching.
- *
- * Provides hooks for Country CRUD operations with SWR caching,
- * IndexedDB fallback, and automatic cache invalidation.
- *
- * @namespace CityArtWalks.Actions.Country.Hooks
- * @fileoverview React hooks for Country data operations
- * @author [Your Name]
+ * @file hooks.js
+ * @description SWR-based data fetching hooks for Country.
+ * @author Jaimie Garner
  * @version 2.1.0
- *
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Hooks}
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions}
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Requests}
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Country-Model}
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Schema#Country}
+ * @namespace CityArtWalks.Actions.Country.Hooks
+ * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions} - Complete documentation
+ * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Hooks} - Hooks documentation
+ * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Country} - Country entity documentation
  */
 
-import useSWR, { useSWRConfig } from 'swr';
 import { useMemo, useEffect } from 'react';
 
-import { debugLog, debugError } from 'src/lib/debug';
-import { saveToIndexedDb, loadFromIndexedDb, buildCacheKeyFromSWRKey } from 'src/lib/indexDb';
+import { useBaseHook } from 'src/lib/base-hook';
 
-import * as requests from './requests.js';
+import { CountryApiClient } from './requests';
 
-const swrOptions = {
-  revalidateIfStale: false,
-  revalidateOnFocus: false,
-  revalidateOnReconnect: false,
-  keepPreviousData: true,
-};
+// Create a single instance to use across all hooks
+const countryApiClient = new CountryApiClient();
 
 /**
- * SWR hook for paginated countries with IndexedDB caching support.
  * @memberof CityArtWalks.Actions.Country.Hooks
  * @function useGetPaginatedCountries
- * @param {Object} [filters={}] - Filter parameters object
- * @param {number} [page=1] - Page number for pagination
- * @param {number} [rowsPerPage=10] - Number of items per page
- * @param {string} [token=''] - Auth token for authorization
- * @param {number} [revalidate=600] - Revalidate interval in seconds
- * @param {*} [refreshKey] - Key to trigger manual refresh
- * @returns {Object} Paginated countries result with IndexedDB caching
- * @throws {Error} When API request or cache fails
+ * @description Hook to get paginated countries with full filtering, caching via IndexedDB.
+ *
+ * @param {Object} params - Filter parameters
+ * @param {number} [params.page=1] - Page number
+ * @param {number} [params.limit=10] - Results per page limit
+ * @param {string} [params.search=''] - Search term
+ * @param {boolean} [params.active] - Active status filter
+ * @param {boolean} [params.featured] - Featured filter
+ * @param {string} [params.continent] - Continent filter
+ * @param {string|null} [params.refreshKey=null] - Key to trigger refresh
+ * @param {number} [revalidate=600] - Optional ISR revalidate time in seconds
+ * @returns {Object} Result including loading states, errors, and complete API results
+ * @returns {Object} result.results - Complete API results object (data, pagination, performance, query metadata)
+ * @returns {boolean} result.countriesLoading - Loading state
+ * @returns {Error} result.countriesError - Error state
+ * @returns {boolean} result.countriesValidating - Validation state
+ * @returns {boolean} result.countriesEmpty - Empty state (no data)
+ * @returns {Function} result.mutate - SWR mutate function
+ * @throws {Error} When parameter validation fails
+ * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions} - Complete documentation
  */
-export function useGetPaginatedCountries(
-  filters = {},
-  page = 1,
-  rowsPerPage = 10,
-  token = '',
-  revalidate = 600,
-  refreshKey
-) {
-  // Remove deprecated status, use active boolean and featured
-  const {
-    search = '',
-    active = '',
-    featured = '',
-    createdBy = '',
-    updatedBy = '',
-    cityId = '',
-    stateId = '',
-  } = filters;
-  const revalidateMs = revalidate * 1000;
+export function useGetPaginatedCountries(params = {}, revalidate = 600) {
+  const baseHook = useBaseHook('CityArtWalks.Actions.Country.Hooks');
 
-  const { swrKey, cacheKey } = useMemo(() => {
+  const {
+    page = 1,
+    limit = 10,
+    search = '',
+    active,
+    featured,
+    continent,
+    createdBy,
+    updatedBy,
+    refreshKey = null,
+  } = params;
+
+  const { swrKey } = useMemo(() => {
     const key = [
       'getPaginatedCountries',
+      page,
+      limit,
       search,
       active,
       featured,
+      continent,
       createdBy,
       updatedBy,
-      cityId,
-      stateId,
-      page,
-      rowsPerPage,
       revalidate,
     ];
-    return {
-      swrKey: key,
-      cacheKey: buildCacheKeyFromSWRKey(key),
-    };
+    return baseHook.utils.generateKeys(key);
   }, [
+    baseHook.utils,
+    page,
+    limit,
     search,
     active,
     featured,
+    continent,
     createdBy,
     updatedBy,
-    cityId,
-    stateId,
-    page,
-    rowsPerPage,
     revalidate,
   ]);
 
-  const { data, isLoading, error, mutate } = useSWR(
+  const { data, isLoading, error, isValidating, mutate } = baseHook.useSWRWithCache(
     swrKey,
     async () => {
-      try {
-        const response = await requests.getPaginatedCountries(
-          page,
-          rowsPerPage,
-          filters,
-          token,
-          revalidate
-        );
-        if (response && cacheKey) {
-          await saveToIndexedDb(cacheKey, response);
-          debugLog(`[IndexedDB] Saved data for ${cacheKey}`);
-        }
-        return response;
-      } catch (err) {
-        debugError(
-          'CityArtWalks.Actions.Country.Hooks.useGetPaginatedCountries',
-          'Failed to fetch paginated countries',
-          {
-            error: err.message,
-            filters,
-            page,
-            rowsPerPage,
-            token: token ? '[REDACTED]' : 'none',
-          }
-        );
-        throw err;
-      }
+      const response = await countryApiClient.getPaginatedCountries(
+        { page, limit, search, active, featured, continent, createdBy, updatedBy },
+        revalidate
+      );
+      return response;
     },
-    swrOptions
+    revalidate
   );
-
-  useEffect(() => {
-    if (!cacheKey || !mutate) return;
-    (async () => {
-      try {
-        const cached = await loadFromIndexedDb(cacheKey, revalidateMs);
-        if (cached) {
-          debugLog(`[IndexedDB] Cache hit for ${cacheKey}`);
-          mutate(cached, false);
-        }
-      } catch (cacheError) {
-        debugError(
-          'CityArtWalks.Actions.Country.Hooks.useGetPaginatedCountries',
-          'IndexedDB cache operation failed',
-          {
-            error: cacheError.message,
-            cacheKey,
-          }
-        );
-      }
-    })();
-  }, [cacheKey, mutate, revalidateMs]);
 
   useEffect(() => {
     if (refreshKey) mutate();
   }, [refreshKey, mutate]);
 
-  return useMemo(
-    () => ({
-      countries: data?.data?.countries || [],
-      paginationMeta: data?.data?.meta || { total: 0, page, rowsPerPage, totalPages: 0 },
+  return useMemo(() => {
+    const results = data?.results || {};
+    return {
+      results, // Complete API results object with data, pagination, performance, etc.
       countriesLoading: isLoading,
       countriesError: error,
-      countriesEmpty: !isLoading && (!data?.data?.countries || data?.data?.countries.length === 0),
+      countriesValidating: isValidating,
+      countriesEmpty: !isLoading && (!results.data || results.data.length === 0),
       mutate,
-    }),
-    [data?.data?.countries, data?.data?.meta, page, rowsPerPage, isLoading, error, mutate]
-  );
+    };
+  }, [data, isLoading, error, isValidating, mutate]);
 }
 
 /**
- * SWR hook for fetching a single country by ID with IndexedDB caching.
  * @memberof CityArtWalks.Actions.Country.Hooks
- * @function useGetCountryById
- * @param {string|number} id - The unique identifier of the country
- * @param {string} [token=''] - Optional Bearer token for authorization
- * @param {number} [revalidate=600] - Revalidate interval in seconds
- * @returns {Object} Country data with loading and error states
- * @throws {Error} When API request or cache fails
+ * @function useGetCountry
+ * @description Hook to get country by ID with IndexedDB caching.
+ *
+ * @param {string|number} countryId - The country ID
+ * @param {number} [revalidate=600] - Optional ISR revalidate time in seconds
+ * @returns {Object} Result including loading states, errors, and country data
+ * @throws {Error} When countryId is invalid or API request fails
+ * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions} - Complete documentation
  */
-export function useGetCountryById(id, token = '', revalidate = 600) {
-  const revalidateMs = revalidate * 1000;
+export function useGetCountry(countryId, revalidate = 600) {
+  const baseHook = useBaseHook('CityArtWalks.Actions.Country.Hooks');
 
-  const { swrKey, cacheKey } = useMemo(() => {
-    if (!id) return { swrKey: null, cacheKey: null };
-    const key = ['getCountryById', id, revalidate];
-    return {
-      swrKey: key,
-      cacheKey: buildCacheKeyFromSWRKey(key),
-    };
-  }, [id, revalidate]);
+  const { swrKey } = useMemo(() => {
+    if (!countryId) return { swrKey: null };
+    const key = ['getCountry', countryId, revalidate];
+    return baseHook.utils.generateKeys(key);
+  }, [baseHook.utils, countryId, revalidate]);
 
-  const { data, isLoading, error, isValidating, mutate } = useSWR(
+  const { data, isLoading, error, isValidating, mutate } = baseHook.useSWRWithCache(
     swrKey,
     async () => {
-      try {
-        const response = await requests.getCountryById(id, token, revalidate);
-        if (response && cacheKey) {
-          await saveToIndexedDb(cacheKey, response);
-          debugLog(`[IndexedDB] Saved data for ${cacheKey}`);
-        }
-        return response;
-      } catch (err) {
-        debugError(
-          'CityArtWalks.Actions.Country.Hooks.useGetCountryById',
-          'Failed to fetch country by ID',
-          {
-            error: err.message,
-            id,
-            token: token ? '[REDACTED]' : 'none',
-          }
-        );
-        throw err;
-      }
+      const response = await countryApiClient.getCountry(countryId, revalidate);
+      return response;
     },
-    swrOptions
+    revalidate
   );
 
-  useEffect(() => {
-    if (!cacheKey || !mutate) return;
-    (async () => {
-      try {
-        const cached = await loadFromIndexedDb(cacheKey, revalidateMs);
-        if (cached) {
-          debugLog(`[IndexedDB] Cache hit for ${cacheKey}`);
-          mutate(cached, false);
-        }
-      } catch (cacheError) {
-        debugError(
-          'CityArtWalks.Actions.Country.Hooks.useGetCountryById',
-          'IndexedDB cache operation failed',
-          {
-            error: cacheError.message,
-            cacheKey,
-            id,
-          }
-        );
-      }
-    })();
-  }, [cacheKey, id, mutate, revalidateMs]);
-
-  return useMemo(
-    () => ({
-      country: data?.data || null,
+  return useMemo(() => {
+    const country = data?.results?.data || null;
+    return {
+      country,
       countryLoading: isLoading,
       countryError: error,
       countryValidating: isValidating,
-      countryEmpty: !isLoading && !data?.data,
-    }),
-    [data, isLoading, error, isValidating]
-  );
+      countryEmpty: !isLoading && !country,
+      mutate,
+    };
+  }, [data, isLoading, error, isValidating, mutate]);
 }
 
 /**
- * SWR hook for fetching a single country by slug with IndexedDB caching.
  * @memberof CityArtWalks.Actions.Country.Hooks
  * @function useGetCountryBySlug
- * @param {string} slug - The unique slug identifier for the country
- * @param {string} [token=''] - Optional Bearer token for authorization
- * @param {number} [revalidate=600] - Revalidate interval in seconds
- * @returns {Object} Country data with loading and error states
- * @throws {Error} When API request or cache fails
+ * @description Hook to get country by slug with IndexedDB caching.
+ *
+ * @param {string} slug - The country slug
+ * @param {number} [revalidate=600] - Optional ISR revalidate time in seconds
+ * @returns {Object} Result including loading states, errors, and country data
+ * @throws {Error} When slug is invalid or API request fails
+ * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions} - Complete documentation
  */
-export function useGetCountryBySlug(slug, token = '', revalidate = 600) {
-  const revalidateMs = revalidate * 1000;
+export function useGetCountryBySlug(slug, revalidate = 600) {
+  const baseHook = useBaseHook('CityArtWalks.Actions.Country.Hooks');
 
-  const { swrKey, cacheKey } = useMemo(() => {
-    if (!slug) return { swrKey: null, cacheKey: null };
+  const { swrKey } = useMemo(() => {
+    if (!slug) return { swrKey: null };
     const key = ['getCountryBySlug', slug, revalidate];
-    return {
-      swrKey: key,
-      cacheKey: buildCacheKeyFromSWRKey(key),
-    };
-  }, [slug, revalidate]);
+    return baseHook.utils.generateKeys(key);
+  }, [baseHook.utils, slug, revalidate]);
 
-  const { data, isLoading, error, isValidating, mutate } = useSWR(
+  const { data, isLoading, error, isValidating, mutate } = baseHook.useSWRWithCache(
     swrKey,
     async () => {
-      try {
-        const response = await requests.getCountryBySlug(slug, token, revalidate);
-        if (response && cacheKey) {
-          await saveToIndexedDb(cacheKey, response);
-          debugLog(`[IndexedDB] Saved data for ${cacheKey}`);
-        }
-        return response;
-      } catch (err) {
-        debugError(
-          'CityArtWalks.Actions.Country.Hooks.useGetCountryBySlug',
-          'Failed to fetch country by slug',
-          {
-            error: err.message,
-            slug: slug ? '[REDACTED]' : 'none',
-            token: token ? '[REDACTED]' : 'none',
-          }
-        );
-        throw err;
-      }
+      const response = await countryApiClient.getCountryBySlug(slug, revalidate);
+      return response;
     },
-    swrOptions
+    revalidate
   );
 
-  useEffect(() => {
-    if (!cacheKey || !mutate) return;
-    (async () => {
-      try {
-        const cached = await loadFromIndexedDb(cacheKey, revalidateMs);
-        if (cached) {
-          debugLog(`[IndexedDB] Cache hit for ${cacheKey}`);
-          mutate(cached, false);
-        }
-      } catch (cacheError) {
-        debugError(
-          'CityArtWalks.Actions.Country.Hooks.useGetCountryBySlug',
-          'IndexedDB cache operation failed',
-          {
-            error: cacheError.message,
-            cacheKey,
-            slug: slug ? '[REDACTED]' : 'none',
-          }
-        );
-      }
-    })();
-  }, [cacheKey, mutate, revalidateMs, slug]);
-
-  return useMemo(
-    () => ({
-      country: data?.data || null,
+  return useMemo(() => {
+    const country = data?.results?.data || null;
+    return {
+      country,
       countryLoading: isLoading,
       countryError: error,
       countryValidating: isValidating,
-      countryEmpty: !isLoading && !data?.data,
-    }),
-    [data, isLoading, error, isValidating]
+      countryEmpty: !isLoading && !country,
+      mutate,
+    };
+  }, [data, isLoading, error, isValidating, mutate]);
+}
+
+/**
+ * @memberof CityArtWalks.Actions.Country.Hooks
+ * @function useCreateCountry
+ * @description Hook to create a new country with validation and cache invalidation.
+ *
+ * @returns {Object} Mutation function and state
+ * @returns {Function} result.mutate - Function to execute the mutation (country) => Promise
+ * @returns {boolean} result.loading - Loading state of the mutation
+ * @returns {Error} result.error - Error state of the mutation
+ * @returns {Object} result.data - Result data from successful mutation
+ * @throws {Error} When country data validation fails or API request fails
+ * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions} - Complete documentation
+ * @example
+ * const createCountry = useCreateCountry();
+ * await createCountry.mutate(countryData);
+ */
+export function useCreateCountry() {
+  const baseHook = useBaseHook('CityArtWalks.Actions.Country.Hooks');
+
+  return baseHook.useMutationWithInvalidation(
+    async (country) => {
+      const result = await countryApiClient.createCountry(country);
+      return result;
+    },
+    ['country', 'getPaginatedCountries']
   );
 }
 
 /**
- * Hook for creating a new country with automatic cache invalidation.
- * @memberof CityArtWalks.Actions.Country.Hooks
- * @function useCreateCountry
- * @param {string} [token=''] - Optional Bearer token for authorization
- * @returns {Function} Async function to create a country
- * @throws {Error} When country data validation fails or API request encounters an error
- */
-export function useCreateCountry(token = '') {
-  const { mutate } = useSWRConfig();
-
-  return async (countryData) => {
-    try {
-      const result = await requests.createCountry(countryData, token);
-
-      mutate(
-        (key) =>
-          Array.isArray(key) && (key.includes('country') || key.includes('getPaginatedCountries'))
-      );
-
-      const cachePatterns = ['country', 'getPaginatedCountries'];
-      for (const pattern of cachePatterns) {
-        const cacheKey = buildCacheKeyFromSWRKey([pattern]);
-        await saveToIndexedDb(cacheKey, null);
-      }
-
-      return result;
-    } catch (error) {
-      debugError(
-        'CityArtWalks.Actions.Country.Hooks.useCreateCountry',
-        'Failed to create country',
-        {
-          error: error.message,
-          countryData: countryData
-            ? countryData instanceof FormData
-              ? 'FormData'
-              : 'provided'
-            : 'missing',
-          token: token ? '[REDACTED]' : 'none',
-        }
-      );
-      throw error;
-    }
-  };
-}
-
-/**
- * Hook for updating an existing country with automatic cache invalidation.
  * @memberof CityArtWalks.Actions.Country.Hooks
  * @function useUpdateCountry
- * @param {string} [token=''] - Optional Bearer token for authorization
- * @returns {Function} Async function to update a country
- * @throws {Error} When country data validation fails or API request encounters an error
+ * @description Hook to update an existing country with validation and cache invalidation.
+ *
+ * @returns {Object} Mutation function and state
+ * @returns {Function} result.mutate - Function to execute the mutation (id, countryData) => Promise
+ * @returns {boolean} result.loading - Loading state of the mutation
+ * @returns {Error} result.error - Error state of the mutation
+ * @returns {Object} result.data - Result data from successful mutation
+ * @throws {Error} When country ID is missing, data validation fails, or API request fails
+ * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions} - Complete documentation
+ * @example
+ * const updateCountry = useUpdateCountry();
+ * await updateCountry.mutate(countryId, updatedCountryData);
  */
-export function useUpdateCountry(token = '') {
-  const { mutate } = useSWRConfig();
+export function useUpdateCountry() {
+  const baseHook = useBaseHook('CityArtWalks.Actions.Country.Hooks');
 
-  return async (id, countryData) => {
-    try {
-      const result = await requests.updateCountry(id, countryData, token);
-
-      mutate(
-        (key) =>
-          Array.isArray(key) &&
-          (key.includes('country') ||
-            key.includes('getPaginatedCountries') ||
-            (key.includes('getCountryById') && key.includes(id)) ||
-            key.includes('getCountryBySlug'))
-      );
-
-      const cachePatterns = ['country', 'getPaginatedCountries'];
-      for (const pattern of cachePatterns) {
-        const cacheKey = buildCacheKeyFromSWRKey([pattern]);
-        await saveToIndexedDb(cacheKey, null);
+  return baseHook.useMutationWithInvalidation(
+    async (id, country) => {
+      // Validate parameters
+      if (!id) {
+        baseHook.logger.error('useUpdateCountry', 'Country ID is required');
+        throw new Error('Country ID is required');
       }
 
+      const result = await countryApiClient.updateCountry(id, country);
       return result;
-    } catch (error) {
-      debugError(
-        'CityArtWalks.Actions.Country.Hooks.useUpdateCountry',
-        'Failed to update country',
-        {
-          error: error.message,
-          countryId: id,
-          countryData: countryData
-            ? countryData instanceof FormData
-              ? 'FormData'
-              : 'provided'
-            : 'missing',
-          token: token ? '[REDACTED]' : 'none',
-        }
-      );
-      throw error;
-    }
-  };
+    },
+    ['country', 'getPaginatedCountries']
+  );
 }
 
 /**
- * Hook for deleting a country with automatic cache invalidation.
  * @memberof CityArtWalks.Actions.Country.Hooks
  * @function useDeleteCountry
- * @param {string} [token=''] - Optional Bearer token for authorization
- * @returns {Function} Async function to delete a country
- * @throws {Error} When country ID is invalid or API request encounters an error
+ * @description Hook to delete a country with validation and cache invalidation.
+ *
+ * @returns {Object} Mutation function and state
+ * @returns {Function} result.mutate - Function to execute the mutation (id) => Promise
+ * @returns {boolean} result.loading - Loading state of the mutation
+ * @returns {Error} result.error - Error state of the mutation
+ * @returns {Object} result.data - Result data from successful mutation
+ * @throws {Error} When country ID is missing or API request fails
+ * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions} - Complete documentation
+ * @example
+ * const deleteCountry = useDeleteCountry();
+ * await deleteCountry.mutate(countryId);
  */
-export function useDeleteCountry(token = '') {
-  const { mutate } = useSWRConfig();
+export function useDeleteCountry() {
+  const baseHook = useBaseHook('CityArtWalks.Actions.Country.Hooks');
 
-  return async (id) => {
-    try {
-      const result = await requests.deleteCountry(id, token);
-
-      mutate(
-        (key) =>
-          Array.isArray(key) &&
-          (key.includes('country') ||
-            key.includes('getPaginatedCountries') ||
-            (key.includes('getCountryById') && key.includes(id)) ||
-            key.includes('getCountryBySlug'))
-      );
-
-      const cachePatterns = ['country', 'getPaginatedCountries'];
-      for (const pattern of cachePatterns) {
-        const cacheKey = buildCacheKeyFromSWRKey([pattern]);
-        await saveToIndexedDb(cacheKey, null);
+  return baseHook.useMutationWithInvalidation(
+    async (id) => {
+      // Validate parameters
+      if (!id) {
+        baseHook.logger.error('useDeleteCountry', 'Country ID is required');
+        throw new Error('Country ID is required');
       }
 
+      const result = await countryApiClient.deleteCountry(id);
       return result;
-    } catch (error) {
-      debugError(
-        'CityArtWalks.Actions.Country.Hooks.useDeleteCountry',
-        'Failed to delete country',
-        {
-          error: error.message,
-          countryId: id,
-          token: token ? '[REDACTED]' : 'none',
-        }
-      );
-      throw error;
-    }
-  };
+    },
+    ['country', 'getPaginatedCountries']
+  );
 }
 
 /**
- * Combined hook that provides all country mutation functions.
  * @memberof CityArtWalks.Actions.Country.Hooks
  * @function useCountryMutations
- * @param {string} [token=''] - Optional Bearer token for authorization
- * @returns {Object} Object containing all mutation functions
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Hooks}
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions}
+ * @description Hook that returns all country mutation functions for convenient access.
+ *
+ * @returns {Object} Collection of all country mutation functions
+ * @returns {Function} result.createCountry - Create country mutation function
+ * @returns {Function} result.updateCountry - Update country mutation function
+ * @returns {Function} result.deleteCountry - Delete country mutation function
+ * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions} - Complete documentation
+ * @example
+ * const { createCountry, updateCountry, deleteCountry } = useCountryMutations();
+ * await createCountry.mutate(countryData);
+ * await updateCountry.mutate(countryId, updatedData);
+ * await deleteCountry.mutate(countryId);
  */
-export function useCountryMutations(token = '') {
-  const createCountry = useCreateCountry(token);
-  const updateCountry = useUpdateCountry(token);
-  const deleteCountry = useDeleteCountry(token);
+export function useCountryMutations() {
+  const createCountry = useCreateCountry();
+  const updateCountry = useUpdateCountry();
+  const deleteCountry = useDeleteCountry();
 
   return {
     createCountry,

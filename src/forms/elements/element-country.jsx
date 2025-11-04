@@ -15,8 +15,6 @@ import CircularProgress from '@mui/material/CircularProgress';
 
 import { useGetPaginatedCountries } from 'src/actions/country/hooks';
 
-import { useAuthContext } from 'src/auth/hooks';
-
 /**
  * @memberof CityArtWalks.Form.Element.Country
  * @description ElementCountry component renders a country selection dropdown using Material-UI's TextField
@@ -67,16 +65,16 @@ export function ElementCountry(props) {
     ...other
   } = props;
   const { control } = useFormContext();
-  const { accessToken } = useAuthContext();
   const labelId = `${name}-select-label`;
 
   // Get countries using the proper hook
-  const { countries, countriesLoading, countriesError } = useGetPaginatedCountries(
-    {},
-    1,
-    1000,
-    accessToken
+  const { results, countriesLoading, countriesError } = useGetPaginatedCountries(
+    { page: 1, limit: 500 },
+    600
   ); // Get many countries for dropdown
+
+  // Extract countries from results
+  const countries = results?.data || [];
 
   // Handle loading and error states
   if (countriesLoading) {

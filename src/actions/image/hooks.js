@@ -1,702 +1,314 @@
 /**
  * @file hooks.js
- * @description React hooks for image data fetching, caching, and mutations
- *
- * This module provides comprehensive SWR-based hooks for image operations including
- * paginated fetching, individual record retrieval, CRUD operations, file uploads,
- * and moderation functionality with IndexedDB caching support.
+ * @description SWR-based data fetching hooks for Images.
+ * @author Jaimie Garner
+ * @version 2.1.0
  * @namespace CityArtWalks.Actions.Image.Hooks
- * @version 2.0.0
- * @author GitHub Copilot
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions} - Actions layer documentation
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Hooks} - Hooks patterns documentation
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Image-Model} - Image model documentation
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Schema#Image} - Database schema reference
+ * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions} - Complete documentation
+ * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Hooks} - Hooks documentation
+ * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Image} - Image entity documentation
  */
 
 import { useMemo, useEffect } from 'react';
-import useSWR, { useSWRConfig } from 'swr';
 
-import { debugLog, debugWarn, debugError } from 'src/lib/debug';
-import { saveToIndexedDb, loadFromIndexedDb, buildCacheKeyFromSWRKey } from 'src/lib/indexDb';
+import { useBaseHook } from 'src/lib/base-hook';
 
-import * as requests from './requests';
+import { ImageApiClient } from './requests';
+
+// Create a single instance to use across all hooks
+const imageApiClient = new ImageApiClient();
 
 /**
- * SWR configuration options to control revalidation behavior.
- *
  * @memberof CityArtWalks.Actions.Image.Hooks
- * @type {Object}
- * @property {boolean} revalidateIfStale - If false, data will not be revalidated if it is stale.
- * @property {boolean} revalidateOnFocus - If false, data will not be revalidated when the window regains focus.
- * @property {boolean} revalidateOnReconnect - If false, data will not be revalidated when the browser reconnects to the network.
- * @property {boolean} keepPreviousData - If true, keeps previous data while fetching new data.
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Hooks} - Complete documentation
- */
-const swrOptions = {
-  revalidateIfStale: false,
-  revalidateOnFocus: false,
-  revalidateOnReconnect: false,
-  keepPreviousData: true,
-};
-
-/**
- * SWR hook for paginated images with IndexedDB caching support.
- *
- * Features:
- * - Comprehensive filtering by user, status, artist, art piece, path, and featured status
- * - SWR-based data fetching with automatic revalidation
- * - IndexedDB caching for offline support and performance
- * - Pagination with configurable page size
- * - Search functionality integration
- * - Automatic cache invalidation and refresh support
- *
  * @function useGetPaginatedImages
- * @memberof CityArtWalks.Actions.Image.Hooks
+ * @description Hook to get paginated images with full filtering, caching via IndexedDB.
  *
- * @param {Object} [filters={}] - Filter options
- * @param {string} [filters.createdBy=''] - Filter by user ID who created the image
- * @param {string} [filters.search=''] - Search query
- * @param {string} [filters.status=''] - Filter by status
- * @param {string} [filters.artistId=''] - Filter by artist ID
- * @param {string} [filters.artPieceId=''] - Filter by art piece ID
- * @param {string} [filters.pathId=''] - Filter by path ID
- * @param {boolean} [filters.featured=''] - Filter by featured status
- * @param {number} [page=1] - Page number for pagination
- * @param {number} [rowsPerPage=10] - Number of items per page
- * @param {string} [token=''] - Auth token
- * @param {number} [revalidate=600] - Revalidate interval in seconds
- * @param {*} [refreshKey] - Key to trigger refresh
- * @returns {Object} Paginated images result with IndexedDB caching
- * @returns {Array} returns.images - Array of image objects
- * @returns {Object} returns.paginationMeta - Pagination metadata with total, page, rowsPerPage, totalPages
- * @returns {boolean} returns.imagesLoading - Loading state indicator
- * @returns {Error} returns.imagesError - Error object if request fails
- * @returns {boolean} returns.imagesEmpty - True if no images found
- * @returns {Function} returns.mutate - SWR mutate function for manual revalidation
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Hooks} - Complete documentation
+ * @param {Object} params - Filter parameters
+ * @param {number} [params.page=1] - Page number
+ * @param {number} [params.limit=10] - Results per page limit
+ * @param {string} [params.search=''] - Search term
+ * @param {string} [params.status=''] - Filter by status
+ * @param {string} [params.artistId=''] - Filter by artist ID
+ * @param {string} [params.artPieceId=''] - Filter by art piece ID
+ * @param {string} [params.pathId=''] - Filter by path ID
+ * @param {boolean} [params.featured=''] - Filter by featured status
+ * @param {string|null} [params.refreshKey=null] - Key to trigger refresh
+ * @param {number} [revalidate=600] - Optional ISR revalidate time in seconds
+ * @returns {Object} Result including loading states, errors, and complete API results
+ * @returns {Object} result.results - Complete API results object (data, pagination, performance, query metadata)
+ * @returns {boolean} result.imagesLoading - Loading state
+ * @returns {Error} result.imagesError - Error state
+ * @returns {boolean} result.imagesValidating - Validation state
+ * @returns {boolean} result.imagesEmpty - Empty state (no data)
+ * @returns {Function} result.mutate - SWR mutate function
+ * @throws {Error} When parameter validation fails
+ * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions} - Complete documentation
  */
-export function useGetPaginatedImages(
-  filters = {},
-  page = 1,
-  rowsPerPage = 10,
-  token = '',
-  revalidate = 600,
-  refreshKey
-) {
+export function useGetPaginatedImages(params = {}, revalidate = 600) {
+  const baseHook = useBaseHook('CityArtWalks.Actions.Image.Hooks');
+
   const {
-    createdBy = '',
+    page = 1,
+    limit = 10,
     search = '',
     status = '',
     artistId = '',
     artPieceId = '',
     pathId = '',
     featured = '',
-  } = filters;
-  const revalidateMs = revalidate * 1000;
+    refreshKey = null,
+  } = params;
 
-  const { swrKey, cacheKey } = useMemo(() => {
+  const { swrKey } = useMemo(() => {
     const key = [
       'getPaginatedImages',
-      createdBy,
+      page,
+      limit,
       search,
       status,
       artistId,
       artPieceId,
       pathId,
       featured,
-      page,
-      rowsPerPage,
       revalidate,
     ];
-    return {
-      swrKey: key,
-      cacheKey: buildCacheKeyFromSWRKey(key),
-    };
+    return baseHook.utils.generateKeys(key);
   }, [
-    createdBy,
+    baseHook.utils,
+    page,
+    limit,
     search,
     status,
     artistId,
     artPieceId,
     pathId,
     featured,
-    page,
-    rowsPerPage,
     revalidate,
   ]);
 
-  const { data, isLoading, error, mutate } = useSWR(
-    swrKey,
-    async () => {
-      const response = await requests.getPaginatedImages(
-        page,
-        rowsPerPage,
-        filters,
-        token,
-        revalidate
-      );
-      if (response && cacheKey) {
-        await saveToIndexedDb(cacheKey, response);
-        debugLog(`[IndexedDB] Saved data for ${cacheKey}`);
-      }
-      return response;
-    },
-    swrOptions
-  );
-
-  useEffect(() => {
-    if (!cacheKey || !mutate) return;
-    (async () => {
-      try {
-        const cached = await loadFromIndexedDb(cacheKey, revalidateMs);
-        if (cached) {
-          debugLog(`[IndexedDB] Cache hit for ${cacheKey}`);
-          mutate(cached, false);
-        } else {
-          debugLog(`[IndexedDB] Cache miss for ${cacheKey}`);
-        }
-      } catch (cacheError) {
-        debugWarn(`[IndexedDB] Error loading cache for ${cacheKey}:`, cacheError);
-      }
-    })();
-  }, [cacheKey, mutate, revalidateMs]);
+  const { data, isLoading, error, isValidating, mutate } =
+    baseHook.useSWRWithCache(
+      swrKey,
+      async () => {
+        const response = await imageApiClient.getPaginatedImages(
+          { page, limit, search, status, artistId, artPieceId, pathId, featured },
+          revalidate
+        );
+        return response;
+      },
+      revalidate
+    );
 
   useEffect(() => {
     if (refreshKey) mutate();
   }, [refreshKey, mutate]);
 
-  return useMemo(
-    () => ({
-      images: data?.data?.images || [],
-      // FIX: The meta is in data.data.meta, not data.meta!
-      paginationMeta: data?.data?.meta || {
-        total: 0,
-        page: 1,
-        rowsPerPage: 10,
-        totalPages: 0,
-      },
+  return useMemo(() => {
+    const results = data?.results || {};
+    return {
+      results,
       imagesLoading: isLoading,
       imagesError: error,
-      imagesEmpty: !isLoading && (!data?.data?.images || data?.data?.images.length === 0),
+      imagesValidating: isValidating,
+      imagesEmpty: !isLoading && (!results.data || results.data.length === 0),
       mutate,
-    }),
-    [data, isLoading, error, mutate]
-  );
+    };
+  }, [data, isLoading, error, isValidating, mutate]);
 }
 
 /**
- * Fetches a single image by ID with SWR and IndexedDB caching.
- *
- * Features:
- * - ID validation and sanitization
- * - SWR-based data fetching with automatic revalidation
- * - IndexedDB caching for offline support
- * - Error handling and loading states
- * - Authentication support
- * - Automatic cache invalidation
- *
- * @function useGetImageById
  * @memberof CityArtWalks.Actions.Image.Hooks
+ * @function useGetImage
+ * @description Hook to get image by ID with IndexedDB caching.
  *
- * @param {string|number} id - The unique identifier of the image
- * @param {string} [token=''] - Optional Bearer token for authorization
- * @param {number} [revalidate=600] - Revalidate interval in seconds
- * @returns {Object} Image data with loading and error states
- * @returns {Object} returns.image - The fetched image object
- * @returns {boolean} returns.imageLoading - Loading state indicator
- * @returns {Error} returns.imageError - Error object if request fails
- * @returns {boolean} returns.imageValidating - Validation state indicator
- * @returns {Function} returns.mutateImage - SWR mutate function for manual revalidation
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Hooks} - Complete documentation
+ * @param {string|number} imageId - The image ID
+ * @param {number} [revalidate=600] - Optional ISR revalidate time in seconds
+ * @returns {Object} Result including loading states, errors, and image data
+ * @throws {Error} When imageId is invalid or API request fails
+ * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions} - Complete documentation
  */
-export function useGetImageById(id, token = '', revalidate = 600) {
-  // Only create key if ID is valid, otherwise null to disable SWR
-  const key = id && !isNaN(parseInt(id)) ? ['getImageById', id, revalidate] : null;
+export function useGetImage(imageId, revalidate = 600) {
+  const baseHook = useBaseHook('CityArtWalks.Actions.Image.Hooks');
 
-  const { data, isLoading, error, isValidating, mutate } = useSWR(
-    key,
-    () => requests.getImageById(id, token, revalidate),
-    swrOptions
-  );
+  const { swrKey } = useMemo(() => {
+    if (!imageId) return { swrKey: null };
+    const key = ['getImage', imageId, revalidate];
+    return baseHook.utils.generateKeys(key);
+  }, [baseHook.utils, imageId, revalidate]);
 
-  return useMemo(
-    () => ({
-      image: data?.data || data, // Extract data property if it exists, fallback to data
+  const { data, isLoading, error, isValidating, mutate } =
+    baseHook.useSWRWithCache(
+      swrKey,
+      async () => {
+        const response = await imageApiClient.getImage(imageId, revalidate);
+        return response;
+      },
+      revalidate
+    );
+
+  return useMemo(() => {
+    const image = data?.results?.data || null;
+    return {
+      image,
       imageLoading: isLoading,
       imageError: error,
       imageValidating: isValidating,
-      mutateImage: mutate,
-    }),
-    [data, isLoading, error, isValidating, mutate]
+      imageEmpty: !isLoading && !image,
+      mutate,
+    };
+  }, [data, isLoading, error, isValidating, mutate]);
+}
+
+/**
+ * @memberof CityArtWalks.Actions.Image.Hooks
+ * @function useCreateImage
+ * @description Hook to create a new image with validation and cache invalidation.
+ *
+ * @returns {Object} Mutation function and state
+ * @returns {Function} result.mutate - Function to execute the mutation (image) => Promise
+ * @returns {boolean} result.loading - Loading state of the mutation
+ * @returns {Error} result.error - Error state of the mutation
+ * @returns {Object} result.data - Result data from successful mutation
+ * @throws {Error} When image data validation fails or API request fails
+ * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions} - Complete documentation
+ * @example
+ * const createImage = useCreateImage();
+ * await createImage.mutate(imageData);
+ */
+export function useCreateImage() {
+  const baseHook = useBaseHook('CityArtWalks.Actions.Image.Hooks');
+
+  return baseHook.useMutationWithInvalidation(
+    async (image) => {
+      const result = await imageApiClient.createImage(image);
+      return result;
+    },
+    ['image', 'getPaginatedImages']
   );
 }
 
 /**
- * Hook for uploading image files to Vercel Blob storage.
- *
- * This hook handles only the file upload process and returns the uploaded image URL
- * and metadata. It does not create database records - use useCreateImage for that.
- *
- * Features:
- * - File upload to Vercel Blob storage
- * - FormData and File object support
- * - Authentication support
- * - Error handling and progress tracking
- * - Metadata extraction and validation
- *
- * @function useUploadImage
  * @memberof CityArtWalks.Actions.Image.Hooks
- *
- * @param {string} [token=''] - Optional Bearer token for authorization
- * @returns {Function} Async function to upload an image file
- * @returns {Promise<Object>} The upload response with URL and metadata
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Hooks} - Complete documentation
- */
-export function useUploadImage(token = '') {
-  return async (fileOrFormData, revalidate = 600) => {
-    const result = await requests.uploadImage(fileOrFormData, token, revalidate);
-    return result;
-  };
-}
-
-/**
- * Hook for creating a new image with automatic cache invalidation for both SWR and IndexedDB.
- *
- * Features:
- * - Image record creation with validation
- * - Automatic SWR cache invalidation
- * - IndexedDB cache cleanup
- * - Error handling and debugging
- * - Authentication support
- * - ISR revalidation support
- *
- * @function useCreateImage
- * @memberof CityArtWalks.Actions.Image.Hooks
- *
- * @param {string} [token=''] - Optional Bearer token for authorization
- * @returns {Function} Async function to create an image
- * @returns {Promise<Object>} The created image data from the server
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Hooks} - Complete documentation
- */
-export function useCreateImage(token = '') {
-  const { mutate } = useSWRConfig();
-
-  return async (image, revalidate = 600) => {
-    const result = await requests.createImage(image, token, revalidate);
-
-    // Clear SWR cache
-    mutate(
-      (key) => Array.isArray(key) && (key.includes('image') || key.includes('getPaginatedImages'))
-    );
-
-    // Clear related IndexedDB cache entries
-    try {
-      const cacheKeysToDelete = ['getPaginatedImages'];
-      for (const keyPrefix of cacheKeysToDelete) {
-        const cacheKey = buildCacheKeyFromSWRKey([keyPrefix]);
-        await saveToIndexedDb(cacheKey, null); // Clear by setting to null
-        debugLog(`[IndexedDB] Cleared cache for ${cacheKey}`);
-      }
-    } catch (cacheError) {
-      debugWarn('[IndexedDB] Error clearing cache after create?:', cacheError);
-    }
-
-    return result;
-  };
-}
-
-/**
- * Hook for updating an existing image with automatic cache invalidation for both SWR and IndexedDB.
- *
- * Features:
- * - Image record updates with validation
- * - Partial update support
- * - Automatic SWR cache invalidation
- * - IndexedDB cache cleanup
- * - Error handling and debugging
- * - Authentication support
- *
  * @function useUpdateImage
- * @memberof CityArtWalks.Actions.Image.Hooks
+ * @description Hook to update an existing image with validation and cache invalidation.
  *
- * @param {string} [token=''] - Optional Bearer token for authorization
- * @returns {Function} Async function to update an image
- * @returns {Promise<Object>} The updated image data from the server
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Hooks} - Complete documentation
+ * @returns {Object} Mutation function and state
+ * @returns {Function} result.mutate - Function to execute the mutation (id, imageData) => Promise
+ * @returns {boolean} result.loading - Loading state of the mutation
+ * @returns {Error} result.error - Error state of the mutation
+ * @returns {Object} result.data - Result data from successful mutation
+ * @throws {Error} When image ID is missing, data validation fails, or API request fails
+ * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions} - Complete documentation
+ * @example
+ * const updateImage = useUpdateImage();
+ * await updateImage.mutate(imageId, updatedImageData);
  */
-export function useUpdateImage(token = '') {
-  const { mutate } = useSWRConfig();
+export function useUpdateImage() {
+  const baseHook = useBaseHook('CityArtWalks.Actions.Image.Hooks');
 
-  return async (id, image, revalidate = 600) => {
-    const result = await requests.updateImage(id, image, token, revalidate);
-
-    // Clear SWR cache
-    mutate(
-      (key) => Array.isArray(key) && (key.includes('image') || key.includes('getPaginatedImages'))
-    );
-
-    // Clear related IndexedDB cache entries
-    try {
-      const cacheKeysToDelete = ['getPaginatedImages', ['getImageById', id].join('_')];
-      for (const keyPrefix of cacheKeysToDelete) {
-        const cacheKey = buildCacheKeyFromSWRKey(
-          Array.isArray(keyPrefix) ? keyPrefix : [keyPrefix]
-        );
-        await saveToIndexedDb(cacheKey, null); // Clear by setting to null
-        debugLog(`[IndexedDB] Cleared cache for ${cacheKey}`);
+  return baseHook.useMutationWithInvalidation(
+    async (id, image) => {
+      if (!id) {
+        baseHook.logger.error('useUpdateImage', 'Image ID is required');
+        throw new Error('Image ID is required');
       }
-    } catch (cacheError) {
-      debugWarn('[IndexedDB] Error clearing cache after update?:', cacheError);
-    }
 
-    return result;
-  };
+      const result = await imageApiClient.updateImage(id, image);
+      return result;
+    },
+    ['image', 'getPaginatedImages']
+  );
 }
 
 /**
- * Hook for deleting an image with automatic cache invalidation for both SWR and IndexedDB.
- *
- * Features:
- * - Image record deletion with validation
- * - Automatic SWR cache invalidation
- * - IndexedDB cache cleanup
- * - Error handling and debugging
- * - Authentication support
- * - Cascade deletion support
- *
+ * @memberof CityArtWalks.Actions.Image.Hooks
  * @function useDeleteImage
- * @memberof CityArtWalks.Actions.Image.Hooks
+ * @description Hook to delete an image with validation and cache invalidation.
  *
- * @param {string} [token=''] - Optional Bearer token for authorization
- * @returns {Function} Async function to delete an image
- * @returns {Promise<Object>} The deletion response from the server
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Hooks} - Complete documentation
+ * @returns {Object} Mutation function and state
+ * @returns {Function} result.mutate - Function to execute the mutation (id) => Promise
+ * @returns {boolean} result.loading - Loading state of the mutation
+ * @returns {Error} result.error - Error state of the mutation
+ * @returns {Object} result.data - Result data from successful mutation
+ * @throws {Error} When image ID is missing or API request fails
+ * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions} - Complete documentation
+ * @example
+ * const deleteImage = useDeleteImage();
+ * await deleteImage.mutate(imageId);
  */
-export function useDeleteImage(token = '') {
-  const { mutate } = useSWRConfig();
+export function useDeleteImage() {
+  const baseHook = useBaseHook('CityArtWalks.Actions.Image.Hooks');
 
-  return async (id, revalidate = 600) => {
-    const result = await requests.deleteImage(id, token, revalidate);
-
-    // Clear SWR cache
-    mutate(
-      (key) => Array.isArray(key) && (key.includes('image') || key.includes('getPaginatedImages'))
-    );
-
-    // Clear related IndexedDB cache entries
-    try {
-      const cacheKeysToDelete = ['getPaginatedImages', ['getImageById', id].join('_')];
-      for (const keyPrefix of cacheKeysToDelete) {
-        const cacheKey = buildCacheKeyFromSWRKey(
-          Array.isArray(keyPrefix) ? keyPrefix : [keyPrefix]
-        );
-        await saveToIndexedDb(cacheKey, null); // Clear by setting to null
-        debugLog(`[IndexedDB] Cleared cache for ${cacheKey}`);
+  return baseHook.useMutationWithInvalidation(
+    async (id) => {
+      if (!id) {
+        baseHook.logger.error('useDeleteImage', 'Image ID is required');
+        throw new Error('Image ID is required');
       }
-    } catch (cacheError) {
-      debugWarn('[IndexedDB] Error clearing cache after delete?:', cacheError);
-    }
 
-    return result;
-  };
+      const result = await imageApiClient.deleteImage(id);
+      return result;
+    },
+    ['image', 'getPaginatedImages']
+  );
 }
 
 /**
- * Combined hook that provides all image operation functions including upload, create, update, and delete.
- *
- * Features:
- * - Complete CRUD operations for images
- * - File upload functionality
- * - Combined upload and create workflow
- * - Automatic cache management
- * - Error handling and debugging
- * - Authentication support
- *
- * @function useImageMutations
  * @memberof CityArtWalks.Actions.Image.Hooks
+ * @function useUploadImage
+ * @description Hook to upload image file to storage with cache invalidation.
  *
- * @param {string} [token=''] - Optional Bearer token for authorization
- * @returns {Object} Object containing all operation functions
- * @returns {Function} returns.uploadImage - Function to upload an image file to Vercel Blob storage
- * @returns {Function} returns.createImage - Function to create a new image record
- * @returns {Function} returns.updateImage - Function to update an existing image
- * @returns {Function} returns.deleteImage - Function to delete an image
- * @returns {Function} returns.uploadAndCreateImage - Combined function to upload file and create record
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Hooks} - Complete documentation
+ * @returns {Object} Mutation function and state
+ * @returns {Function} result.mutate - Function to execute the mutation (fileOrFormData) => Promise
+ * @returns {boolean} result.loading - Loading state of the mutation
+ * @returns {Error} result.error - Error state of the mutation
+ * @returns {Object} result.data - Result data from successful mutation
+ * @throws {Error} When file upload fails or API request fails
+ * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions} - Complete documentation
+ * @example
+ * const uploadImage = useUploadImage();
+ * await uploadImage.mutate(fileOrFormData);
  */
-export function useImageMutations(token = '') {
-  const uploadImage = useUploadImage(token);
-  const createImage = useCreateImage(token);
-  const updateImage = useUpdateImage(token);
-  const deleteImage = useDeleteImage(token);
+export function useUploadImage() {
+  const baseHook = useBaseHook('CityArtWalks.Actions.Image.Hooks');
 
-  // Combined upload and create function
-  const uploadAndCreateImage = async (file, imageData = {}, revalidate = 600) => {
-    try {
-      // Step 1: Upload the file
-      const uploadResult = await uploadImage(file, revalidate);
+  return baseHook.useMutationWithInvalidation(
+    async (fileOrFormData) => {
+      const result = await imageApiClient.uploadImage(fileOrFormData);
+      return result;
+    },
+    ['image', 'getPaginatedImages']
+  );
+}
 
-      if (!uploadResult?.data?.url) {
-        throw new Error('Upload failed - no URL returned');
-      }
-
-      // Step 2: Create the image record with the uploaded URL
-      const createData = {
-        url: uploadResult.data.url,
-        ...imageData, // Merge any additional image metadata
-      };
-
-      const createResult = await createImage(createData, revalidate);
-
-      // Return the created image record with upload metadata
-      return {
-        ...createResult,
-        uploadMetadata: uploadResult.data,
-      };
-    } catch (error) {
-      // Re-throw with enhanced context
-      throw new Error(`Upload and create failed: ${error.message}`);
-    }
-  };
+/**
+ * @memberof CityArtWalks.Actions.Image.Hooks
+ * @function useImageMutations
+ * @description Hook that returns all image mutation functions for convenient access.
+ *
+ * @returns {Object} Collection of all image mutation functions
+ * @returns {Function} result.createImage - Create image mutation function
+ * @returns {Function} result.updateImage - Update image mutation function
+ * @returns {Function} result.deleteImage - Delete image mutation function
+ * @returns {Function} result.uploadImage - Upload image mutation function
+ * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions} - Complete documentation
+ * @example
+ * const { createImage, updateImage, deleteImage, uploadImage } = useImageMutations();
+ * await createImage.mutate(imageData);
+ * await updateImage.mutate(imageId, updatedData);
+ * await deleteImage.mutate(imageId);
+ * await uploadImage.mutate(fileOrFormData);
+ */
+export function useImageMutations() {
+  const createImage = useCreateImage();
+  const updateImage = useUpdateImage();
+  const deleteImage = useDeleteImage();
+  const uploadImage = useUploadImage();
 
   return {
-    uploadImage,
     createImage,
     updateImage,
     deleteImage,
-    uploadAndCreateImage,
-  };
-}
-
-/**
- * SWR hook for fetching paginated flagged images for moderation dashboard.
- * Only accessible by admin users with proper authorization.
- *
- * Features:
- * - Admin-only access with authentication
- * - Paginated flagged image retrieval
- * - Search functionality for moderation queue
- * - IndexedDB caching with shorter revalidation interval
- * - Error handling and debugging
- * - Automatic cache management
- *
- * @function useGetPaginatedFlaggedImages
- * @memberof CityArtWalks.Actions.Image.Hooks
- *
- * @param {number} [page=1] - Page number for pagination
- * @param {number} [limit=10] - Number of items per page
- * @param {string} [search=''] - Search query for flagged images
- * @param {string} [token=''] - Auth token for admin verification
- * @param {number} [revalidate=300] - Revalidate interval in seconds (5 minutes for moderation queue)
- * @returns {Object} Paginated flagged images result for moderation
- * @returns {Array} returns.flaggedImages - Array of flagged image objects
- * @returns {Object} returns.paginationMeta - Pagination metadata
- * @returns {boolean} returns.flaggedImagesLoading - Loading state indicator
- * @returns {Error} returns.flaggedImagesError - Error object if request fails
- * @returns {boolean} returns.flaggedImagesEmpty - True if no flagged images found
- * @returns {Function} returns.mutateFlaggedImages - SWR mutate function for manual revalidation
- */
-export function useGetPaginatedFlaggedImages(
-  page = 1,
-  limit = 10,
-  search = '',
-  token = '',
-  revalidate = 300
-) {
-  const revalidateMs = revalidate * 1000;
-
-  const { swrKey, cacheKey } = useMemo(() => {
-    const key = ['getPaginatedFlaggedImages', search, page, limit, revalidate];
-    return {
-      swrKey: key,
-      cacheKey: buildCacheKeyFromSWRKey(key),
-    };
-  }, [search, page, limit, revalidate]);
-
-  const { data, isLoading, error, mutate } = useSWR(
-    swrKey,
-    async () => {
-      try {
-        const response = await requests.getPaginatedFlaggedImages(page, limit, search, token);
-        if (response && cacheKey) {
-          await saveToIndexedDb(cacheKey, response);
-          debugLog(
-            'CityArtWalks.Actions.Image.Hooks.useGetPaginatedFlaggedImages',
-            `[IndexedDB] Saved data for ${cacheKey}`
-          );
-        }
-        return response;
-      } catch (err) {
-        debugError(
-          'CityArtWalks.Actions.Image.Hooks.useGetPaginatedFlaggedImages',
-          'Failed to fetch flagged images',
-          {
-            error: err.message,
-            page,
-            limit,
-            search,
-            token: token ? '[REDACTED]' : 'none',
-          }
-        );
-        throw err;
-      }
-    },
-    swrOptions
-  );
-
-  // IndexedDB fallback loading
-  useEffect(() => {
-    if (!cacheKey || !mutate) return;
-    (async () => {
-      try {
-        const cached = await loadFromIndexedDb(cacheKey, revalidateMs);
-        if (cached) {
-          debugLog(
-            'CityArtWalks.Actions.Image.Hooks.useGetPaginatedFlaggedImages',
-            `[IndexedDB] Cache hit for ${cacheKey}`
-          );
-          mutate(cached, false);
-        }
-      } catch (cacheError) {
-        debugError(
-          'CityArtWalks.Actions.Image.Hooks.useGetPaginatedFlaggedImages',
-          'IndexedDB cache operation failed',
-          {
-            error: cacheError.message,
-            cacheKey,
-          }
-        );
-      }
-    })();
-  }, [cacheKey, mutate, revalidateMs]);
-
-  return useMemo(
-    () => ({
-      flaggedImages: data?.flaggedImages || [],
-      paginationMeta: data?.meta || {
-        total: 0,
-        page: 1,
-        rowsPerPage: 10,
-        totalPages: 0,
-      },
-      flaggedImagesLoading: isLoading,
-      flaggedImagesError: error,
-      flaggedImagesEmpty: !isLoading && (!data?.flaggedImages || data.flaggedImages.length === 0),
-      mutateFlaggedImages: mutate,
-    }),
-    [data, isLoading, error, mutate]
-  );
-}
-
-/**
- * Hook for image moderation actions (approve, remove, bulk operations).
- * Provides functions for moderating flagged images with proper error handling.
- *
- * Features:
- * - Single image moderation (approve/remove)
- * - Bulk moderation operations
- * - Moderation notes support
- * - Automatic cache invalidation
- * - Error handling and debugging
- * - Admin authentication support
- *
- * @function useImageModeration
- * @memberof CityArtWalks.Actions.Image.Hooks
- *
- * @param {string} [token=''] - Auth token for admin verification
- * @returns {Object} Image moderation functions
- * @returns {Function} returns.moderateImage - Function to moderate a single image
- * @returns {Function} returns.bulkModerateImages - Function to moderate multiple images
- */
-export function useImageModeration(token = '') {
-  const { mutate } = useSWRConfig();
-
-  /**
-   * Moderate a single image (approve or remove)
-   */
-  const moderateImage = async (imageId, action, moderationNotes = '') => {
-    try {
-      debugLog(
-        'CityArtWalks.Actions.Image.Hooks.useImageModeration.moderateImage',
-        'Starting image moderation',
-        {
-          imageId,
-          action,
-          hasNotes: !!moderationNotes,
-        }
-      );
-
-      const result = await requests.moderateImage(imageId, action, moderationNotes, token);
-
-      // Invalidate flagged images cache
-      mutate((key) => Array.isArray(key) && key[0] === 'flagged-images');
-
-      debugLog(
-        'CityArtWalks.Actions.Image.Hooks.useImageModeration.moderateImage',
-        'Image moderation completed',
-        {
-          imageId,
-          action,
-          success: result.success,
-        }
-      );
-
-      return result;
-    } catch (error) {
-      debugWarn(
-        'CityArtWalks.Actions.Image.Hooks.useImageModeration.moderateImage',
-        'Image moderation failed',
-        { error }
-      );
-      throw error;
-    }
-  };
-
-  /**
-   * Moderate multiple images in bulk (approve or remove)
-   */
-  const bulkModerateImages = async (imageIds, action, moderationNotes = '') => {
-    try {
-      debugLog(
-        'CityArtWalks.Actions.Image.Hooks.useImageModeration.bulkModerateImages',
-        'Starting bulk image moderation',
-        {
-          imageCount: imageIds.length,
-          action,
-          hasNotes: !!moderationNotes,
-        }
-      );
-
-      const result = await requests.bulkModerateImages(imageIds, action, moderationNotes, token);
-
-      // Invalidate flagged images cache
-      mutate((key) => Array.isArray(key) && key[0] === 'flagged-images');
-
-      debugLog(
-        'CityArtWalks.Actions.Image.Hooks.useImageModeration.bulkModerateImages',
-        'Bulk image moderation completed',
-        {
-          imageCount: imageIds.length,
-          action,
-          successCount: result.data?.successCount || 0,
-          failureCount: result.data?.failureCount || 0,
-        }
-      );
-
-      return result;
-    } catch (error) {
-      debugWarn(
-        'CityArtWalks.Actions.Image.Hooks.useImageModeration.bulkModerateImages',
-        'Bulk image moderation failed',
-        { error }
-      );
-      throw error;
-    }
-  };
-
-  return {
-    moderateImage,
-    bulkModerateImages,
+    uploadImage,
   };
 }

@@ -1,448 +1,310 @@
+/**
+ * @file image-table-admin.jsx
+ * @description Complete image table component with filters, pagination, and CRUD operations
+ * @namespace CityArtWalks.Components.Image
+ * @version 1.0.0
+ * @author Jaimie Garner
+ */
+
 'use client';
 
-import { varAlpha } from 'minimal-shared/utils';
-import { useBoolean } from 'minimal-shared/hooks';
-import { useMemo, useState, useEffect, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 
-import Tab from '@mui/material/Tab';
-import Box from '@mui/material/Box';
-import Tabs from '@mui/material/Tabs';
 import Card from '@mui/material/Card';
 import Table from '@mui/material/Table';
-import Tooltip from '@mui/material/Tooltip';
-import Divider from '@mui/material/Divider';
+import TableRow from '@mui/material/TableRow';
 import TableBody from '@mui/material/TableBody';
-import IconButton from '@mui/material/IconButton';
+import TableCell from '@mui/material/TableCell';
 import TableContainer from '@mui/material/TableContainer';
+import CircularProgress from '@mui/material/CircularProgress';
 
-import { useDebounce } from 'src/hooks/use-debounce';
+import { useGetUser } from 'src/actions/user/hooks';
+import { useGetImage, useDeleteImage, useGetPaginatedImages } from 'src/actions/image/hooks';
 
-import { useDeleteImage, useUpdateImage, useGetPaginatedImages } from 'src/actions/image/hooks';
-
-import { Label } from 'src/components/label';
 import { toast } from 'src/components/snackbar';
-import { DeleteIcon } from 'src/components/icons';
-import { ImageTableRow } from 'src/components/image/image-table-row';
-import { ImageViewDialog } from 'src/components/image/image-view-dialog';
-import { ImageUpdateDialog } from 'src/components/image/image-update-dialog';
-import { ImageTableToolbarSimple } from 'src/components/image/image-table-toolbar-simple';
-import { ImageTableFiltersResult } from 'src/components/image/image-table-filters-result';
+import { Scrollbar } from 'src/components/scrollbar';
 import {
   useTable,
   emptyRows,
   TableNoData,
   TableEmptyRows,
   TableHeadCustom,
-  TableSelectedAction,
   TablePaginationCustom,
 } from 'src/components/table';
 
+import { ImageError } from './image-error';
+import { ImageTableRow } from './image-table-row';
+import { ImageEditDialog } from './image-edit-dialog';
+import { ImageTableFilter } from './image-table-filter';
+import { ImageDeleteDialog } from './image-delete-dialog';
+import { ArtistUserDialog } from '../artist/artist-user-dialog';
+import { ArtistImageDialog } from '../artist/artist-image-dialog';
+
+// ----------------------------------------------------------------------
+
 /**
- * Table head configuration for the images table
- * @constant {Array<Object>} TABLE_HEAD
+ * @memberof CityArtWalks.Components.Image
+ * @description Table head configuration for the image table.
+ * @constant
+ * @type {Array<{ id: string, label: string, width?: number }>}
  */
 const TABLE_HEAD = [
-  { id: 'image', label: 'Image' },
-  { id: 'status', label: 'Status' },
-  { id: 'featured', label: 'Featured' },
-  { id: 'relations', label: 'Relations' },
-  { id: 'createdBy', label: 'Created By' },
+  { id: 'image', label: 'Image', width: 80 },
+  { id: 'title', label: 'Title' },
+  { id: 'artist', label: 'Artist', width: 200 },
+  { id: 'artPiece', label: 'Art Piece', width: 200 },
+  { id: 'featured', label: 'Featured', width: 100 },
+  { id: 'status', label: 'Status', width: 120 },
+  { id: 'createdBy', label: 'Created By', width: 150 },
   { id: '', width: 88 },
 ];
 
+// ----------------------------------------------------------------------
+
 /**
- * Image Table component
- * Displays a table of images with filtering, pagination, and CRUD operations.
- *
+ * @description Complete image table component with filtering, pagination, and CRUD operations
+ * @memberof CityArtWalks.Components.Image
+ * @function ImageTable
  * @param {Object} props - Component props
- * @param {Object} props.filters - Filter state object (e.g., {createdBy: 123, status: 'ACTIVE'})
- * @param {string} props.accessToken - Authentication token
- * @param {Array} props.tabOptions - Tab options for status filtering
- * @param {Object} props.displayFilters - Object defining which filters should be displayed
- * @returns {JSX.Element} The image table component
+ * @param {boolean} [props.featured=false] - Filter by featured status
+ * @param {string} [props.status=''] - Filter by status
+ * @param {string|null} [props.artistId=null] - Filter by artist ID
+ * @param {string|null} [props.artPieceId=null] - Filter by art piece ID
+ * @returns {JSX.Element} The Image Table component.
  */
-export function ImageTable({
-  filters: initialFilters = { status: 'all' },
-  accessToken = '',
-  tabOptions = [],
-  displayFilters = {
-    search: true,
-    featured: false,
-    createdBy: false,
-    status: true,
-    artistId: true,
-    artPieceId: true,
-    pathId: true,
-  },
-}) {
-  // set pagination
-  const [page, setPage] = useState(0);
-  const [rowsPerPage, setRowsPerPage] = useState(10);
+export function ImageTable({ featured = false, status = '', artistId = null, artPieceId = null }) {
+  const table = useTable({ defaultRowsPerPage: 25 });
 
-  // set up filters and search - merge initial filters with local state
-  const [filters, setFilters] = useState(initialFilters);
-  const [search, setSearch] = useState('');
-  const debouncedSearch = useDebounce(search, 500); // 500ms debounce delay
+  // Filter states
+  const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState(status);
+  const [featuredFilter, setFeaturedFilter] = useState(featured ? true : '');
 
-  // set up table data and hooks
-  const table = useTable();
-  const confirmDialog = useBoolean();
-  const viewDialog = useBoolean();
-  const editDialog = useBoolean();
-  const [tableData, setTableData] = useState([]);
-  const [viewImageId, setViewImageId] = useState(null);
-  const [editImageId, setEditImageId] = useState(null);
+  // Delete dialog state
+  const [deleteDialog, setDeleteDialog] = useState({ open: false, id: null, title: '' });
+  const [deleting, setDeleting] = useState(false);
 
-  // Update filters when initialFilters change
-  useEffect(() => {
-    setFilters(initialFilters);
-  }, [initialFilters]);
+  // Edit dialog state
+  const [editDialog, setEditDialog] = useState({ open: false, imageId: null });
 
-  // Determine if we can reset based on any non-default filter values
-  const canReset =
-    Object.entries(filters).some(([key, value]) => {
-      if (key === 'status') return value !== 'all';
-      if (key === 'featured') return value === true; // Featured filter is active when explicitly set to true
-      if (Array.isArray(value)) return value.length > 0;
-      return value !== '' && value !== null && value !== undefined;
-    }) || !!search;
+  // User details dialog state
+  const [userDialog, setUserDialog] = useState({ open: false, userId: null });
 
-  const notFound = !tableData.length && (canReset || !!search);
+  // Full image dialog state
+  const [imageDialog, setImageDialog] = useState({ open: false, imageUrl: null, imageTitle: '' });
 
-  // Defensive: always ensure filters.status is a valid tab value
-  const validTabValues = tabOptions.map((opt) => opt.value);
-  const safeTab = validTabValues.includes(filters.status) ? filters.status : 'all';
-  const safeSearch = typeof search === 'string' ? search : '';
-  const safeDebouncedSearch = typeof debouncedSearch === 'string' ? debouncedSearch : '';
+  // Delete image mutation
+  const deleteImage = useDeleteImage();
 
-  // Prepare API filters - filter out 'all' status and empty values
-  const apiFilters = useMemo(() => {
-    const baseFilters = {
-      ...filters,
-      search: safeDebouncedSearch,
-    };
-
-    // Remove 'all' status - when status is 'all', we don't send any status filter
-    if (safeTab === 'all') {
-      delete baseFilters.status;
-    } else {
-      baseFilters.status = safeTab;
-    }
-
-    // Convert featured boolean to string for API compatibility
-    if (baseFilters.featured === true || baseFilters.featured === false) {
-      baseFilters.featured = baseFilters.featured.toString();
-    }
-
-    // Convert minFileSize to string for API compatibility (0 means no filter)
-    if (baseFilters.minFileSize !== undefined && baseFilters.minFileSize !== 0) {
-      baseFilters.minFileSize = baseFilters.minFileSize.toString();
-    } else if (baseFilters.minFileSize === 0) {
-      delete baseFilters.minFileSize; // Remove if 0 (no filter)
-    }
-
-    // Remove empty string values to avoid unnecessary filtering
-    // Special handling for boolean values like 'featured' which can be false
-    return Object.fromEntries(
-      Object.entries(baseFilters).filter(([key, value]) => {
-        if (key === 'featured') return value === 'true' || value === 'false'; // Keep boolean string values
-        if (key === 'minFileSize') return value && value !== '0'; // Keep non-zero file size values
-        return value !== '' && value !== null && value !== undefined;
-      })
-    );
-  }, [filters, safeTab, safeDebouncedSearch]);
-
-  // Fetch images - Convert page from 0-based to 1-based for API
-  const { images, imagesLoading, paginationMeta, mutate } = useGetPaginatedImages(
-    apiFilters,
-    page + 1, // Convert 0-based to 1-based
-    rowsPerPage,
-    accessToken,
-    3600
+  // Fetch image for editing (only when dialog is open and we have an ID)
+  const { image: editImage, imageLoading: loadingImage } = useGetImage(
+    editDialog.open ? editDialog.imageId : null,
+    600
   );
 
-  // Delete hook
-  const deleteImage = useDeleteImage(accessToken);
+  // Fetch user for details dialog (only when dialog is open and we have a userId)
+  const { user: dialogUser, userLoading: loadingUser } = useGetUser(
+    userDialog.open ? userDialog.userId : null,
+    600
+  );
 
-  // Update hook for featured toggle
-  const updateImage = useUpdateImage(accessToken);
-
-  // Keep tableData in sync with API
-  useEffect(() => {
-    setTableData(images || []);
-  }, [images]);
-
-  // Handle single Delete Row
-  const handleDeleteRow = useCallback(
-    async (imageId) => {
-      try {
-        await deleteImage(imageId);
-        toast.success('Image deleted successfully!');
-
-        // Refresh the data
-        await mutate();
-
-        // Update pagination if needed
-        const newTableData = tableData.filter((row) => row.imageId !== imageId);
-        table.onUpdatePageDeleteRow(newTableData.length);
-      } catch (error) {
-        toast.error('Failed to delete image');
-        console.error('Delete error:', error);
-      }
+  // Fetch paginated images
+  const { results, imagesLoading, imagesError, imagesEmpty, mutate } = useGetPaginatedImages(
+    {
+      page: table.page + 1, // API uses 1-based pagination
+      limit: table.rowsPerPage,
+      search: searchTerm || undefined,
+      status: statusFilter || undefined,
+      featured: featuredFilter || undefined,
+      artistId: artistId || undefined,
+      artPieceId: artPieceId || undefined,
     },
-    [deleteImage, mutate, table, tableData]
+    600
   );
 
-  // Handle view image
+  console.log('Paginated Images Results:', results);
+  const images = results?.data || [];
+  const totalCount = results?.total || 0;
+
+  const notFound = imagesEmpty;
+
   const handleViewRow = useCallback(
-    (imageId) => {
-      setViewImageId(imageId);
-      viewDialog.onTrue();
+    (id) => {
+      window.location.href = `/image/${id}`;
     },
-    [viewDialog]
+    []
   );
 
-  const handleCloseViewDialog = useCallback(() => {
-    setViewImageId(null);
-    viewDialog.onFalse();
-  }, [viewDialog]);
-
-  // Handle edit image
   const handleEditRow = useCallback(
-    (imageId) => {
-      setEditImageId(imageId);
-      editDialog.onTrue();
+    (id) => {
+      setEditDialog({ open: true, imageId: id });
     },
-    [editDialog]
+    []
   );
 
   const handleCloseEditDialog = useCallback(() => {
-    setEditImageId(null);
-    editDialog.onFalse();
-  }, [editDialog]);
+    setEditDialog({ open: false, imageId: null });
+  }, []);
 
-  const handleEditSuccess = useCallback(async () => {
-    // Refresh the table data after successful edit
-    await mutate();
-    toast.success('Table data refreshed');
-  }, [mutate]);
+  const handleEditSuccess = useCallback(() => {
+    // Refresh the list after successful edit
+    mutate();
+    handleCloseEditDialog();
+  }, [mutate, handleCloseEditDialog]);
 
-  // Handle toggle featured
-  const handleToggleFeatured = useCallback(
-    async (imageId, newFeaturedState) => {
-      try {
-        await updateImage(imageId, { featured: newFeaturedState });
+  const handleViewUser = useCallback((userId) => {
+    setUserDialog({ open: true, userId });
+  }, []);
 
-        // Refresh the data
-        await mutate();
+  const handleCloseUserDialog = useCallback(() => {
+    setUserDialog({ open: false, userId: null });
+  }, []);
 
-        toast.success(`Image ${newFeaturedState ? 'featured' : 'unfeatured'} successfully`);
-      } catch (error) {
-        toast.error('Failed to update featured status');
-        console.error('Toggle featured error:', error);
-      }
+  const handleViewFullImage = useCallback((imageUrl, imageTitle) => {
+    setImageDialog({ open: true, imageUrl, imageTitle });
+  }, []);
+
+  const handleCloseImageDialog = useCallback(() => {
+    setImageDialog({ open: false, imageUrl: null, imageTitle: '' });
+  }, []);
+
+  const handleDeleteRow = useCallback(
+    (id, title) => {
+      setDeleteDialog({ open: true, id, title });
     },
-    [updateImage, mutate]
+    []
   );
 
-  // Reset page when debounced search changes
-  useEffect(() => {
-    setPage(0);
-  }, [debouncedSearch]);
-
-  // Handler for search input
-  const handleSearchChange = useCallback((event) => {
-    const value = event?.target?.value ?? '';
-    setSearch(value);
-    // Page reset will happen when debouncedSearch changes
+  const handleCloseDeleteDialog = useCallback(() => {
+    setDeleteDialog({ open: false, id: null, title: '' });
   }, []);
 
-  // Handler for clearing filters and search
-  const handleClearFilters = useCallback(() => {
-    // Reset to default values, preserving any base filters from props
-    const defaultFilters = { ...initialFilters, status: 'all' };
-    setFilters(defaultFilters);
-    setSearch('');
-    setPage(0);
-  }, [initialFilters]);
-
-  // Handler for changing tab value
-  const handleFilterTab = useCallback((event, newValue) => {
-    setFilters((prev) => ({ ...prev, status: newValue }));
-    setPage(0);
-  }, []);
-
-  // Handler for filter changes from toolbar
-  const handleFilterChange = useCallback((filterKeyOrObject, filterValue) => {
-    if (typeof filterKeyOrObject === 'string') {
-      // Single filter change (e.g., from featured slider)
-      setFilters((prev) => ({ ...prev, [filterKeyOrObject]: filterValue }));
-    } else {
-      // Multiple filter changes (object)
-      setFilters((prev) => ({ ...prev, ...filterKeyOrObject }));
+  const handleConfirmDelete = useCallback(async () => {
+    if (!deleteDialog.id) {
+      return;
     }
-    setPage(0);
-  }, []);
 
-  // Handler for pagination changes
-  const handlePageChange = useCallback((event, newPage) => {
-    setPage(newPage);
-  }, []);
-
-  const handleRowsPerPageChange = useCallback((event) => {
-    setRowsPerPage(parseInt(event.target.value, 10));
-    setPage(0);
-  }, []);
+    setDeleting(true);
+    try {
+      await deleteImage(deleteDialog.id);
+      
+      // Refresh the image list after successful deletion
+      await mutate();
+      
+      toast.success(`Image "${deleteDialog.title}" deleted successfully`);
+      handleCloseDeleteDialog();
+    } catch (error) {
+      console.error('Error deleting image:', error);
+      toast.error(error?.message || 'Failed to delete image. Please try again.');
+      // Keep dialog open on error so user can retry
+    } finally {
+      setDeleting(false);
+    }
+  }, [deleteDialog, deleteImage, mutate, handleCloseDeleteDialog]);
 
   return (
-    <Card>
-      {(!displayFilters || displayFilters.status) && (
-        <Tabs
-          value={safeTab}
-          onChange={handleFilterTab}
-          sx={[
-            (theme) => ({
-              px: 2.5,
-              boxShadow: `inset 0 -2px 0 0 ${varAlpha(theme.vars.palette.grey['500Channel'], 0.08)}`,
-            }),
-          ]}
-        >
-          {tabOptions.map((tab) => (
-            <Tab
-              key={tab.value}
-              iconPosition="end"
-              value={tab.value}
-              label={tab.label}
-              icon={
-                <Label
-                  variant={
-                    ((tab.value === 'all' || tab.value === filters.status) && 'filled') || 'soft'
-                  }
-                  color={
-                    (tab.value === 'ACTIVE' && 'success') ||
-                    (tab.value === 'PENDING' && 'warning') ||
-                    (tab.value === 'BANNED' && 'error') ||
-                    (tab.value === 'REJECTED' && 'error') ||
-                    'default'
-                  }
-                >
-                  {tab.value === 'all' ? paginationMeta?.total || 0 : ''}
-                </Label>
-              }
-            />
-          ))}
-        </Tabs>
-      )}
-
-      <ImageTableToolbarSimple
-        filters={filters}
-        onResetPage={() => setPage(0)}
-        onFilterChange={handleFilterChange}
-        onSearchChange={handleSearchChange}
-        search={safeSearch}
-        onClearFilters={handleClearFilters}
-        displayFilters={displayFilters}
-        accessToken={accessToken}
-      />
-
-      {(canReset || !!safeSearch) && (
-        <ImageTableFiltersResult
-          filters={filters}
-          totalResults={paginationMeta?.total || tableData.length}
-          onResetPage={() => setPage(0)}
-          onClearFilters={handleClearFilters}
-          onFilterChange={handleFilterChange}
-          search={safeSearch}
-          displayFilters={displayFilters}
-          sx={{ p: 2.5, pt: 0 }}
+    <>
+      <Card>
+        <ImageTableFilter
+          searchTerm={searchTerm}
+          onSearchChange={setSearchTerm}
+          statusFilter={statusFilter}
+          onStatusChange={setStatusFilter}
+          featuredFilter={featuredFilter}
+          onFeaturedChange={setFeaturedFilter}
         />
-      )}
 
-      <TableSelectedAction
-        dense={table.dense}
-        numSelected={table.selected.length}
-        rowCount={tableData.length}
-        onSelectAllRows={(checked) =>
-          table.onSelectAllRows(
-            checked,
-            tableData.map((row) => row.imageId)
-          )
-        }
-        action={
-          <Tooltip title="Delete">
-            <IconButton color="primary" onClick={confirmDialog.onTrue}>
-              <DeleteIcon />
-            </IconButton>
-          </Tooltip>
-        }
-      />
-
-      <TableContainer sx={{ overflow: 'auto' }}>
-        <Table size={table.dense ? 'small' : 'medium'} sx={{ minWidth: 960 }}>
-          <TableHeadCustom
-            order={table.order}
-            orderBy={table.orderBy}
-            headCells={TABLE_HEAD}
-            rowCount={tableData.length}
-            numSelected={table.selected.length}
-            onSort={table.onSort}
-            onSelectAllRows={(checked) =>
-              table.onSelectAllRows(
-                checked,
-                tableData.map((row) => row.imageId)
-              )
-            }
-          />
-          <TableBody>
-            {tableData.map((row) => (
-              <ImageTableRow
-                key={row.imageId}
-                row={row}
-                selected={table.selected.includes(row.imageId)}
-                onSelectRow={() => table.onSelectRow(row.imageId)}
-                onDeleteRow={() => handleDeleteRow(row.imageId)}
-                onViewRow={() => handleViewRow(row.imageId)}
-                onEditRow={() => handleEditRow(row.imageId)}
-                onToggleFeatured={handleToggleFeatured}
-                loading={imagesLoading}
+        <TableContainer sx={{ position: 'relative' }}>
+          <Scrollbar>
+            <Table size={table.dense ? 'small' : 'medium'} sx={{ minWidth: 960 }}>
+              <TableHeadCustom
+                order={table.order}
+                orderBy={table.orderBy}
+                headCells={TABLE_HEAD}
+                rowCount={images.length}
+                numSelected={table.selected.length}
+                onSort={table.onSort}
               />
-            ))}
-            <TableEmptyRows
-              height={table.dense ? 56 : 56 + 20}
-              emptyRows={emptyRows(page, rowsPerPage, paginationMeta?.total || 0)}
-            />
-            <TableNoData notFound={notFound} />
-          </TableBody>
-        </Table>
-      </TableContainer>
 
-      <Divider sx={{ borderStyle: 'dashed' }} />
+              <TableBody>
+                {imagesLoading ? (
+                  <TableRow>
+                    <TableCell colSpan={TABLE_HEAD.length} sx={{ textAlign: 'center', py: 3 }}>
+                      <CircularProgress size={40} />
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  <>
+                    {images.map((image) => (
+                      <ImageTableRow
+                        key={image.imageId}
+                        row={image}
+                        selected={table.selected.includes(image.imageId)}
+                        onViewRow={() => handleViewRow(image.imageId)}
+                        onEditRow={() => handleEditRow(image.imageId)}
+                        onDeleteRow={() => handleDeleteRow(image.imageId, image.title)}
+                        onViewUser={handleViewUser}
+                        onViewFullImage={handleViewFullImage}
+                      />
+                    ))}
 
-      <Box sx={{ p: 2, textAlign: 'right' }}>
+                    {notFound && <TableNoData notFound={notFound} />}
+
+                    {!notFound && (
+                      <TableEmptyRows
+                        height={table.dense ? 56 : 76}
+                        emptyRows={emptyRows(table.page, table.rowsPerPage, totalCount)}
+                      />
+                    )}
+                  </>
+                )}
+              </TableBody>
+            </Table>
+          </Scrollbar>
+        </TableContainer>
+
         <TablePaginationCustom
-          count={paginationMeta?.total || 0}
-          page={page}
-          rowsPerPage={rowsPerPage}
-          onPageChange={handlePageChange}
-          onRowsPerPageChange={handleRowsPerPageChange}
-          rowsPerPageOptions={[5, 10, 15, 20]}
+          page={table.page}
+          dense={table.dense}
+          count={totalCount}
+          rowsPerPage={table.rowsPerPage}
+          onPageChange={table.onChangePage}
+          onChangeDense={table.onChangeDense}
+          onRowsPerPageChange={table.onChangeRowsPerPage}
         />
-      </Box>
+      </Card>
 
-      {/* View Dialog */}
-      <ImageViewDialog
-        open={viewDialog.value}
-        onClose={handleCloseViewDialog}
-        imageId={viewImageId}
+      <ImageError error={imagesError} />
+
+      <ImageDeleteDialog
+        open={deleteDialog.open}
+        onClose={handleCloseDeleteDialog}
+        imageTitle={deleteDialog.title}
+        onConfirm={handleConfirmDelete}
+        deleting={deleting}
       />
 
-      {/* Edit Dialog */}
-      <ImageUpdateDialog
-        open={editDialog.value}
+      <ImageEditDialog
+        open={editDialog.open}
         onClose={handleCloseEditDialog}
+        image={editImage}
+        loading={loadingImage}
         onSuccess={handleEditSuccess}
-        imageId={editImageId}
       />
-    </Card>
+
+      <ArtistUserDialog
+        open={userDialog.open}
+        onClose={handleCloseUserDialog}
+        user={dialogUser}
+        loading={loadingUser}
+      />
+
+      <ArtistImageDialog
+        open={imageDialog.open}
+        onClose={handleCloseImageDialog}
+        imageUrl={imageDialog.imageUrl}
+        artistName={imageDialog.imageTitle}
+      />
+    </>
   );
 }

@@ -1,54 +1,33 @@
 /**
- * React hooks for AI Chat Conversation operations using SWR
- *
- * This module provides React hooks for AI chat conversation data operations throughout
- * the City Art Walks application. Includes hooks for sending messages to AI chat,
- * fetching conversation history, and managing AI chat interactions with proper
- * caching, error handling, and state management.
- *
+ * @file hooks.js
+ * @description SWR-based data fetching hooks for AIChatConversation.
+ * @author Jaimie Garner
+ * @version 2.1.0
  * @namespace CityArtWalks.Actions.AIChatConversation.Hooks
- * @fileoverview React hooks for AI chat conversation operations using SWR with IndexedDB caching
- * @author jaimie garner
- * @version 1.0.0
- *
- * @requires {@link https://swr.vercel.app/} swr - Data fetching library with caching
- * @requires {@link https://reactjs.org/docs/hooks-intro.html} react - React hooks
- * @requires {@link https://github.com/pacificnm/cityartwalks.com/wiki/Debug} - Debug utilities
- * @requires {@link https://github.com/pacificnm/cityartwalks.com/wiki/IndexedDB} - IndexedDB utilities
- *
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/AIChatConversation-Hooks} - AI Chat hooks documentation
+ * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions} - Complete documentation
  * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Hooks} - Hooks documentation
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions} - Actions layer documentation
+ * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/AIChatConversation} - AIChatConversation entity documentation
  */
 
-import useSWR, { useSWRConfig } from 'swr';
-import { useMemo, useState, useEffect, useCallback } from 'react';
+import { useMemo, useState, useEffect, useCallback } from "react";
 
-import { debugLog, debugError } from 'src/lib/debug';
-import { saveToIndexedDb, loadFromIndexedDb, buildCacheKeyFromSWRKey } from 'src/lib/indexDb';
+import { useBaseHook } from "src/lib/base-hook";
+import {
+  aiChatConversationQuerySchema,
+  createAIChatConversationSchema,
+  updateAIChatConversationSchema,
+} from "src/validators/ai-chat-conversation";
 
-import * as requests from './requests.js';
+import { AIChatConversationApiClient } from "./requests";
 
-// ----------------------------------------------------------------------
-
-/**
- * Standard SWR options for AI chat conversation hooks
- * @memberof CityArtWalks.Actions.AIChatConversation.Hooks
- * @constant {Object}
- */
-const swrOptions = {
-  revalidateIfStale: false,
-  keepPreviousData: true,
-};
-
-// ----------------------------------------------------------------------
+// Create a single instance to use across all hooks
+const aiChatConversationApiClient = new AIChatConversationApiClient();
 
 /**
  * Hook for sending messages to AI chat and managing conversation state
  *
  * @memberof CityArtWalks.Actions.AIChatConversation.Hooks
  * @function useAIChat
- * @param {string} [token=''] - Optional Bearer token for authorization
  * @returns {Object} AI chat interface with state and functions
  * @returns {Array} returns.conversation - Current conversation history
  * @returns {string} returns.sessionId - Current session ID
@@ -61,7 +40,8 @@ const swrOptions = {
  * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/AIChatConversation-Hooks} - AI Chat hooks documentation
  * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/AI-Chat-API} - AI Chat API documentation
  */
-export function useAIChat(token = '') {
+export function useAIChat() {
+  const baseHook = useBaseHook("CityArtWalks.Actions.AIChatConversation.Hooks");
   const [conversation, setConversation] = useState([]);
   const [sessionId, setSessionId] = useState(null);
   const [isSending, setIsSending] = useState(false);
@@ -78,49 +58,31 @@ export function useAIChat(token = '') {
       setError(null);
 
       try {
-        debugLog(
-          'CityArtWalks.Actions.AIChatConversation.Hooks.useAIChat',
-          'Sending message to AI',
-          {
-            messageLength: message.length,
-            conversationLength: conversation.length,
-            hasSessionId: !!sessionId,
-            hasToken: !!token,
-          }
+        const response = await aiChatConversationApiClient.sendAIChatMessage(
+          message,
+          conversation,
+          sessionId
         );
-
-        const response = await requests.sendAIChatMessage(message, conversation, sessionId, token);
 
         // Update conversation with new message and response
         const newConversation = [
           ...conversation,
           { role: 'user', content: message },
-          { role: 'assistant', content: response.data.response },
+          { role: 'assistant', content: response.results.response },
         ];
 
         setConversation(newConversation);
-        setSessionId(response.data.sessionId);
+        setSessionId(response.results.sessionId);
 
-        debugLog(
-          'CityArtWalks.Actions.AIChatConversation.Hooks.useAIChat',
-          'Message sent successfully',
-          {
-            sessionId: response.data.sessionId,
-            responseTime: response.data.responseTime,
-            conversationLength: newConversation.length,
-          }
-        );
-
-        return response.data;
+        return response.results;
       } catch (err) {
-        debugError(
-          'CityArtWalks.Actions.AIChatConversation.Hooks.useAIChat',
-          'Failed to send AI chat message',
+        baseHook.logger.error(
+          "useAIChat",
+          "Failed to send AI chat message",
           {
             error: err.message,
             messageLength: message.length,
             conversationLength: conversation.length,
-            hasToken: !!token,
           }
         );
         setError(err);
@@ -129,14 +91,13 @@ export function useAIChat(token = '') {
         setIsSending(false);
       }
     },
-    [conversation, sessionId, token]
+    [conversation, sessionId, baseHook.logger]
   );
 
   const clearConversation = useCallback(() => {
     setConversation([]);
     setSessionId(null);
     setError(null);
-    debugLog('CityArtWalks.Actions.AIChatConversation.Hooks.useAIChat', 'Conversation cleared');
   }, []);
 
   return useMemo(
@@ -155,57 +116,70 @@ export function useAIChat(token = '') {
 }
 
 /**
- * SWR hook for paginated AI chat conversations with IndexedDB caching support
- *
  * @memberof CityArtWalks.Actions.AIChatConversation.Hooks
  * @function useGetPaginatedAIChatConversations
- * @param {Object} [filters={}] - Filter parameters object
- * @param {string} [filters.search=''] - Search term for messages
- * @param {string} [filters.userId=''] - User ID filter
- * @param {string} [filters.sessionId=''] - Session ID filter
- * @param {string} [filters.model=''] - AI model filter
- * @param {string} [filters.startDate=''] - Start date filter
- * @param {string} [filters.endDate=''] - End date filter
- * @param {string} [filters.sortBy='createdAt'] - Sort field
- * @param {string} [filters.sortOrder='desc'] - Sort order
- * @param {number} [page=1] - Page number for pagination
- * @param {number} [rowsPerPage=10] - Number of items per page
- * @param {string} [token=''] - Auth token for authorization
- * @param {number} [revalidate=600] - Revalidate interval in seconds
- * @param {*} [refreshKey] - Key to trigger manual refresh
- * @returns {Object} Paginated AI chat conversations result with IndexedDB caching
- * @returns {Array} returns.aiChatConversations - Array of AI chat conversation objects
- * @returns {Object} returns.paginationMeta - Pagination metadata
- * @returns {boolean} returns.aiChatConversationsLoading - Loading state
- * @returns {Error} returns.aiChatConversationsError - Error state
- * @returns {boolean} returns.aiChatConversationsEmpty - Empty state
- * @returns {Function} returns.mutate - SWR mutate function
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/AIChatConversation-Hooks} - AI Chat hooks documentation
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions} - Actions layer documentation
+ * @description Hook to get paginated AI chat conversations with full filtering, caching via IndexedDB.
+ *
+ * @param {Object} params - Filter parameters
+ * @param {number} [params.page=1] - Page number
+ * @param {number} [params.limit=10] - Results per page limit
+ * @param {string} [params.search=''] - Search term
+ * @param {string} [params.userId=''] - User ID filter
+ * @param {string} [params.sessionId=''] - Session ID filter
+ * @param {string} [params.model=''] - AI model filter
+ * @param {string} [params.startDate=''] - Start date filter
+ * @param {string} [params.endDate=''] - End date filter
+ * @param {string} [params.sortBy='createdAt'] - Sort field
+ * @param {string} [params.sortOrder='desc'] - Sort order
+ * @param {string|null} [params.refreshKey=null] - Key to trigger refresh
+ * @param {number} [revalidate=600] - Optional ISR revalidate time in seconds
+ * @returns {Object} Result including loading states, errors, and complete API results
+ * @returns {Object} result.results - Complete API results object (data, pagination, performance, query metadata)
+ * @returns {boolean} result.aiChatConversationsLoading - Loading state
+ * @returns {Error} result.aiChatConversationsError - Error state
+ * @returns {boolean} result.aiChatConversationsValidating - Validation state
+ * @returns {boolean} result.aiChatConversationsEmpty - Empty state (no data)
+ * @returns {Function} result.mutate - SWR mutate function
+ * @throws {Error} When parameter validation fails
+ * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions} - Complete documentation
  */
-export function useGetPaginatedAIChatConversations(
-  filters = {},
-  page = 1,
-  rowsPerPage = 10,
-  token = '',
-  revalidate = 600,
-  refreshKey
-) {
-  const {
-    search = '',
-    userId = '',
-    sessionId = '',
-    model = '',
-    startDate = '',
-    endDate = '',
-    sortBy = 'createdAt',
-    sortOrder = 'desc',
-  } = filters;
-  const revalidateMs = revalidate * 1000;
+export function useGetPaginatedAIChatConversations(params = {}, revalidate = 600) {
+  const baseHook = useBaseHook("CityArtWalks.Actions.AIChatConversation.Hooks");
 
-  const { swrKey, cacheKey } = useMemo(() => {
+  const {
+    page = 1,
+    limit = 10,
+    search = "",
+    userId = "",
+    sessionId = "",
+    model = "",
+    startDate = "",
+    endDate = "",
+    sortBy = "createdAt",
+    sortOrder = "desc",
+    refreshKey = null,
+  } = params;
+
+  // Validate parameters using Zod schema
+  const validationResult = useMemo(
+    () =>
+      baseHook.validators.validateWithSchema(
+        { page, limit, search, userId, sessionId, model, startDate, endDate, sortBy, sortOrder },
+        aiChatConversationQuerySchema,
+        "useGetPaginatedAIChatConversations"
+      ),
+    [baseHook.validators, page, limit, search, userId, sessionId, model, startDate, endDate, sortBy, sortOrder]
+  );
+
+  const { swrKey } = useMemo(() => {
+    if (!validationResult.success) {
+      return { swrKey: null };
+    }
+
     const key = [
-      'getPaginatedAIChatConversations',
+      "getPaginatedAIChatConversations",
+      page,
+      limit,
       search,
       userId,
       sessionId,
@@ -214,15 +188,14 @@ export function useGetPaginatedAIChatConversations(
       endDate,
       sortBy,
       sortOrder,
-      page,
-      rowsPerPage,
       revalidate,
     ];
-    return {
-      swrKey: key,
-      cacheKey: buildCacheKeyFromSWRKey(key),
-    };
+    return baseHook.utils.generateKeys(key);
   }, [
+    baseHook.utils,
+    validationResult.success,
+    page,
+    limit,
     search,
     userId,
     sessionId,
@@ -231,380 +204,237 @@ export function useGetPaginatedAIChatConversations(
     endDate,
     sortBy,
     sortOrder,
-    page,
-    rowsPerPage,
     revalidate,
   ]);
 
-  const { data, isLoading, error, mutate } = useSWR(
-    swrKey,
-    async () => {
-      try {
-        const response = await requests.getPaginatedAIChatConversations(
-          page,
-          rowsPerPage,
-          filters,
-          token,
+  const { data, isLoading, error, isValidating, mutate } =
+    baseHook.useSWRWithCache(
+      swrKey,
+      async () => {
+        const response = await aiChatConversationApiClient.getPaginatedAIChatConversations(
+          { page, limit, search, userId, sessionId, model, startDate, endDate, sortBy, sortOrder },
           revalidate
         );
-        if (response && cacheKey) {
-          await saveToIndexedDb(cacheKey, response);
-          debugLog(`[IndexedDB] Saved data for ${cacheKey}`);
-        }
         return response;
-      } catch (err) {
-        debugError(
-          'CityArtWalks.Actions.AIChatConversation.Hooks.useGetPaginatedAIChatConversations',
-          'Failed to fetch paginated AI chat conversations',
-          {
-            error: err.message,
-            filters,
-            page,
-            rowsPerPage,
-            token: token ? '[REDACTED]' : 'none',
-          }
-        );
-        throw err;
-      }
-    },
-    swrOptions
-  );
+      },
+      revalidate
+    );
 
-  // IndexedDB fallback loading
-  useEffect(() => {
-    if (!cacheKey || !mutate) return;
-    (async () => {
-      try {
-        const cached = await loadFromIndexedDb(cacheKey, revalidateMs);
-        if (cached) {
-          debugLog(`[IndexedDB] Cache hit for ${cacheKey}`);
-          mutate(cached, false);
-        }
-      } catch (cacheError) {
-        debugError(
-          'CityArtWalks.Actions.AIChatConversation.Hooks.useGetPaginatedAIChatConversations',
-          'IndexedDB cache operation failed',
-          {
-            error: cacheError.message,
-            cacheKey,
-          }
-        );
-      }
-    })();
-  }, [cacheKey, mutate, revalidateMs]);
-
-  // Manual refresh trigger
   useEffect(() => {
     if (refreshKey) mutate();
   }, [refreshKey, mutate]);
 
-  return useMemo(
-    () => ({
-      aiChatConversations: data?.data?.aiChatConversations || [],
-      paginationMeta: data?.data?.meta || {
-        total: 0,
-        page: 1,
-        rowsPerPage: 10,
-        totalPages: 0,
-      },
+  return useMemo(() => {
+    const results = data?.results || {};
+    return {
+      results, // Complete API results object with data, pagination, performance, etc.
       aiChatConversationsLoading: isLoading,
       aiChatConversationsError: error,
-      aiChatConversationsEmpty:
-        !isLoading &&
-        (!data?.data?.aiChatConversations || data.data.aiChatConversations.length === 0),
+      aiChatConversationsValidating: isValidating,
+      aiChatConversationsEmpty: !isLoading && (!results.data || results.data.length === 0),
       mutate,
-    }),
-    [data, isLoading, error, mutate]
-  );
+    };
+  }, [data, isLoading, error, isValidating, mutate]);
 }
 
 /**
- * SWR hook for fetching a single AI chat conversation by ID with IndexedDB caching
- *
  * @memberof CityArtWalks.Actions.AIChatConversation.Hooks
- * @function useGetAIChatConversationById
- * @param {string|number} id - The unique identifier of the AI chat conversation
- * @param {string} [token=''] - Optional Bearer token for authorization
- * @param {number} [revalidate=600] - Revalidate interval in seconds
- * @returns {Object} AI chat conversation data with loading and error states
- * @returns {Object} returns.aiChatConversation - AI chat conversation object or null
- * @returns {boolean} returns.aiChatConversationLoading - Loading state
- * @returns {Error} returns.aiChatConversationError - Error state
- * @returns {boolean} returns.aiChatConversationValidating - Revalidation state
- * @returns {boolean} returns.aiChatConversationEmpty - Empty state
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/AIChatConversation-Hooks} - AI Chat hooks documentation
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions} - Actions layer documentation
+ * @function useGetAIChatConversation
+ * @description Hook to get AI chat conversation by ID with IndexedDB caching.
+ *
+ * @param {string|number} aiChatConversationId - The AI chat conversation ID
+ * @param {number} [revalidate=600] - Optional ISR revalidate time in seconds
+ * @returns {Object} Result including loading states, errors, and conversation data
+ * @throws {Error} When aiChatConversationId is invalid or API request fails
+ * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions} - Complete documentation
  */
-export function useGetAIChatConversationById(id, token = '', revalidate = 600) {
-  const revalidateMs = revalidate * 1000;
+export function useGetAIChatConversation(aiChatConversationId, revalidate = 600) {
+  const baseHook = useBaseHook("CityArtWalks.Actions.AIChatConversation.Hooks");
 
-  const { swrKey, cacheKey } = useMemo(() => {
-    if (!id) return { swrKey: null, cacheKey: null };
-    const key = ['getAIChatConversationById', id, revalidate];
-    return {
-      swrKey: key,
-      cacheKey: buildCacheKeyFromSWRKey(key),
-    };
-  }, [id, revalidate]);
-
-  const { data, isLoading, error, isValidating, mutate } = useSWR(
-    swrKey,
-    async () => {
-      try {
-        const response = await requests.getAIChatConversationById(id, token, revalidate);
-        if (response && cacheKey) {
-          await saveToIndexedDb(cacheKey, response);
-          debugLog(`[IndexedDB] Saved data for ${cacheKey}`);
-        }
-        return response;
-      } catch (err) {
-        debugError(
-          'CityArtWalks.Actions.AIChatConversation.Hooks.useGetAIChatConversationById',
-          'Failed to fetch AI chat conversation by ID',
-          {
-            error: err.message,
-            id,
-            token: token ? '[REDACTED]' : 'none',
-          }
-        );
-        throw err;
-      }
-    },
-    swrOptions
-  );
-
-  // IndexedDB fallback loading
+  // Validate aiChatConversationId parameter
   useEffect(() => {
-    if (!cacheKey || !mutate) return;
-    (async () => {
-      try {
-        const cached = await loadFromIndexedDb(cacheKey, revalidateMs);
-        if (cached) {
-          debugLog(`[IndexedDB] Cache hit for ${cacheKey}`);
-          mutate(cached, false);
-        }
-      } catch (cacheError) {
-        debugError(
-          'CityArtWalks.Actions.AIChatConversation.Hooks.useGetAIChatConversationById',
-          'IndexedDB cache operation failed',
-          {
-            error: cacheError.message,
-            cacheKey,
-            id,
-          }
-        );
-      }
-    })();
-  }, [cacheKey, mutate, revalidateMs, id]);
+    if (
+      aiChatConversationId &&
+      !baseHook.validators.validateWithSchema(
+        ["string", "number"],
+        aiChatConversationId,
+        "aiChatConversationId",
+        "useGetAIChatConversation"
+      )
+    ) {
+      // Validation handled by base hook
+    }
+  }, [baseHook.validators, aiChatConversationId]);
 
-  return useMemo(
-    () => ({
-      aiChatConversation: data?.data || null,
+  const { swrKey } = useMemo(() => {
+    if (!aiChatConversationId) return { swrKey: null };
+    const key = ["getAIChatConversation", aiChatConversationId, revalidate];
+    return baseHook.utils.generateKeys(key);
+  }, [baseHook.utils, aiChatConversationId, revalidate]);
+
+  const { data, isLoading, error, isValidating, mutate } =
+    baseHook.useSWRWithCache(
+      swrKey,
+      async () => {
+        const response = await aiChatConversationApiClient.getAIChatConversation(aiChatConversationId, revalidate);
+        return response;
+      },
+      revalidate
+    );
+
+  return useMemo(() => {
+    const aiChatConversation = data?.results?.data || null;
+    return {
+      aiChatConversation,
       aiChatConversationLoading: isLoading,
       aiChatConversationError: error,
       aiChatConversationValidating: isValidating,
-      aiChatConversationEmpty: !isLoading && !data?.data,
-    }),
-    [data, isLoading, error, isValidating]
-  );
+      aiChatConversationEmpty: !isLoading && !aiChatConversation,
+      mutate,
+    };
+  }, [data, isLoading, error, isValidating, mutate]);
 }
 
 /**
- * Hook for creating a new AI chat conversation with automatic cache invalidation
- *
  * @memberof CityArtWalks.Actions.AIChatConversation.Hooks
  * @function useCreateAIChatConversation
- * @param {string} [token=''] - Optional Bearer token for authorization
- * @returns {Function} Async function to create an AI chat conversation
- * @returns {Promise<Object>} returns.result - Created AI chat conversation response
- * @throws {Error} When AI chat conversation data validation fails or API request encounters an error
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/AIChatConversation-Hooks} - AI Chat hooks documentation
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions} - Actions layer documentation
+ * @description Hook to create a new AI chat conversation with validation and cache invalidation.
+ *
+ * @returns {Object} Mutation function and state
+ * @returns {Function} result.mutate - Function to execute the mutation (aiChatConversation) => Promise
+ * @returns {boolean} result.loading - Loading state of the mutation
+ * @returns {Error} result.error - Error state of the mutation
+ * @returns {Object} result.data - Result data from successful mutation
+ * @throws {Error} When AI chat conversation data validation fails or API request fails
+ * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions} - Complete documentation
+ * @example
+ * const createAIChatConversation = useCreateAIChatConversation();
+ * await createAIChatConversation.mutate(aiChatConversationData);
  */
-export function useCreateAIChatConversation(token = '') {
-  const { mutate } = useSWRConfig();
+export function useCreateAIChatConversation() {
+  const baseHook = useBaseHook("CityArtWalks.Actions.AIChatConversation.Hooks");
 
-  return async (aiChatConversationData) => {
-    try {
-      const result = await requests.createAIChatConversation(aiChatConversationData, token);
-
-      // Invalidate SWR cache
-      mutate(
-        (key) =>
-          Array.isArray(key) &&
-          (key.includes('aiChatConversation') || key.includes('getPaginatedAIChatConversations'))
-      );
-
-      // Clear related IndexedDB cache entries manually after mutations
-      const cachePatterns = ['aiChatConversation', 'getPaginatedAIChatConversations'];
-      for (const pattern of cachePatterns) {
-        const cacheKey = buildCacheKeyFromSWRKey([pattern]);
-        await saveToIndexedDb(cacheKey, null);
+  return baseHook.useMutationWithInvalidation(
+    async (aiChatConversation) => {
+      // Validate AI chat conversation data if not FormData
+      if (!(aiChatConversation instanceof FormData)) {
+        baseHook.validators.validateWithSchema(
+          aiChatConversation,
+          createAIChatConversationSchema,
+          "useCreateAIChatConversation",
+          true // throw on error
+        );
       }
 
-      debugLog(
-        'CityArtWalks.Actions.AIChatConversation.Hooks.useCreateAIChatConversation',
-        'AI chat conversation created successfully',
-        {
-          id: result.aiChatConversationId,
-        }
-      );
-
+      const result = await aiChatConversationApiClient.createAIChatConversation(aiChatConversation);
       return result;
-    } catch (error) {
-      debugError(
-        'CityArtWalks.Actions.AIChatConversation.Hooks.useCreateAIChatConversation',
-        'Failed to create AI chat conversation',
-        {
-          error: error.message,
-          hasData: !!aiChatConversationData,
-          hasToken: !!token,
-        }
-      );
-      throw error;
-    }
-  };
+    },
+    ["aiChatConversation", "getPaginatedAIChatConversations"]
+  );
 }
 
 /**
- * Hook for updating an existing AI chat conversation with automatic cache invalidation
- *
  * @memberof CityArtWalks.Actions.AIChatConversation.Hooks
  * @function useUpdateAIChatConversation
- * @param {string} [token=''] - Optional Bearer token for authorization
- * @returns {Function} Async function to update an AI chat conversation
- * @returns {Promise<Object>} returns.result - Updated AI chat conversation response
- * @throws {Error} When AI chat conversation data validation fails or API request encounters an error
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/AIChatConversation-Hooks} - AI Chat hooks documentation
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions} - Actions layer documentation
+ * @description Hook to update an existing AI chat conversation with validation and cache invalidation.
+ *
+ * @returns {Object} Mutation function and state
+ * @returns {Function} result.mutate - Function to execute the mutation (id, aiChatConversationData) => Promise
+ * @returns {boolean} result.loading - Loading state of the mutation
+ * @returns {Error} result.error - Error state of the mutation
+ * @returns {Object} result.data - Result data from successful mutation
+ * @throws {Error} When AI chat conversation ID is missing, data validation fails, or API request fails
+ * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions} - Complete documentation
+ * @example
+ * const updateAIChatConversation = useUpdateAIChatConversation();
+ * await updateAIChatConversation.mutate(aiChatConversationId, updatedData);
  */
-export function useUpdateAIChatConversation(token = '') {
-  const { mutate } = useSWRConfig();
+export function useUpdateAIChatConversation() {
+  const baseHook = useBaseHook("CityArtWalks.Actions.AIChatConversation.Hooks");
 
-  return async (id, aiChatConversationData) => {
-    try {
-      const result = await requests.updateAIChatConversation(id, aiChatConversationData, token);
-
-      // Invalidate SWR cache
-      mutate(
-        (key) =>
-          Array.isArray(key) &&
-          (key.includes('aiChatConversation') || key.includes('getPaginatedAIChatConversations'))
-      );
-
-      // Clear related IndexedDB cache entries manually after mutations
-      const cachePatterns = ['aiChatConversation', 'getPaginatedAIChatConversations'];
-      for (const pattern of cachePatterns) {
-        const cacheKey = buildCacheKeyFromSWRKey([pattern]);
-        await saveToIndexedDb(cacheKey, null);
+  return baseHook.useMutationWithInvalidation(
+    async (id, aiChatConversation) => {
+      // Validate parameters
+      if (!id) {
+        baseHook.logger.error("useUpdateAIChatConversation", "AIChatConversation ID is required");
+        throw new Error("AIChatConversation ID is required");
       }
 
-      debugLog(
-        'CityArtWalks.Actions.AIChatConversation.Hooks.useUpdateAIChatConversation',
-        'AI chat conversation updated successfully',
-        {
-          id,
-        }
-      );
+      // Validate AI chat conversation data if not FormData
+      if (!(aiChatConversation instanceof FormData)) {
+        baseHook.validators.validateWithSchema(
+          aiChatConversation,
+          updateAIChatConversationSchema,
+          "useUpdateAIChatConversation",
+          true // throw on error
+        );
+      }
 
+      const result = await aiChatConversationApiClient.updateAIChatConversation(id, aiChatConversation);
       return result;
-    } catch (error) {
-      debugError(
-        'CityArtWalks.Actions.AIChatConversation.Hooks.useUpdateAIChatConversation',
-        'Failed to update AI chat conversation',
-        {
-          error: error.message,
-          id,
-          hasData: !!aiChatConversationData,
-          hasToken: !!token,
-        }
-      );
-      throw error;
-    }
-  };
+    },
+    ["aiChatConversation", "getPaginatedAIChatConversations"]
+  );
 }
 
 /**
- * Hook for deleting an AI chat conversation with automatic cache invalidation
- *
  * @memberof CityArtWalks.Actions.AIChatConversation.Hooks
  * @function useDeleteAIChatConversation
- * @param {string} [token=''] - Optional Bearer token for authorization
- * @returns {Function} Async function to delete an AI chat conversation
- * @returns {Promise<Object>} returns.result - Deletion response
- * @throws {Error} When API request encounters an error
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/AIChatConversation-Hooks} - AI Chat hooks documentation
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions} - Actions layer documentation
+ * @description Hook to delete an AI chat conversation with validation and cache invalidation.
+ *
+ * @returns {Object} Mutation function and state
+ * @returns {Function} result.mutate - Function to execute the mutation (id) => Promise
+ * @returns {boolean} result.loading - Loading state of the mutation
+ * @returns {Error} result.error - Error state of the mutation
+ * @returns {Object} result.data - Result data from successful mutation
+ * @throws {Error} When AI chat conversation ID is missing or API request fails
+ * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions} - Complete documentation
+ * @example
+ * const deleteAIChatConversation = useDeleteAIChatConversation();
+ * await deleteAIChatConversation.mutate(aiChatConversationId);
  */
-export function useDeleteAIChatConversation(token = '') {
-  const { mutate } = useSWRConfig();
+export function useDeleteAIChatConversation() {
+  const baseHook = useBaseHook("CityArtWalks.Actions.AIChatConversation.Hooks");
 
-  return async (id) => {
-    try {
-      const result = await requests.deleteAIChatConversation(id, token);
-
-      // Invalidate SWR cache
-      mutate(
-        (key) =>
-          Array.isArray(key) &&
-          (key.includes('aiChatConversation') || key.includes('getPaginatedAIChatConversations'))
-      );
-
-      // Clear related IndexedDB cache entries manually after mutations
-      const cachePatterns = ['aiChatConversation', 'getPaginatedAIChatConversations'];
-      for (const pattern of cachePatterns) {
-        const cacheKey = buildCacheKeyFromSWRKey([pattern]);
-        await saveToIndexedDb(cacheKey, null);
+  return baseHook.useMutationWithInvalidation(
+    async (id) => {
+      // Validate parameters
+      if (!id) {
+        baseHook.logger.error("useDeleteAIChatConversation", "AIChatConversation ID is required");
+        throw new Error("AIChatConversation ID is required");
       }
 
-      debugLog(
-        'CityArtWalks.Actions.AIChatConversation.Hooks.useDeleteAIChatConversation',
-        'AI chat conversation deleted successfully',
-        {
-          id,
-        }
-      );
-
+      const result = await aiChatConversationApiClient.deleteAIChatConversation(id);
       return result;
-    } catch (error) {
-      debugError(
-        'CityArtWalks.Actions.AIChatConversation.Hooks.useDeleteAIChatConversation',
-        'Failed to delete AI chat conversation',
-        {
-          error: error.message,
-          id,
-          hasToken: !!token,
-        }
-      );
-      throw error;
-    }
-  };
+    },
+    ["aiChatConversation", "getPaginatedAIChatConversations"]
+  );
 }
 
 /**
- * Combined hook that provides all AI chat conversation mutation functions
- *
  * @memberof CityArtWalks.Actions.AIChatConversation.Hooks
  * @function useAIChatConversationMutations
- * @param {string} [token=''] - Optional Bearer token for authorization
- * @returns {Object} Object containing all mutation functions
- * @returns {Function} returns.createAIChatConversation - Function to create AI chat conversation
- * @returns {Function} returns.updateAIChatConversation - Function to update AI chat conversation
- * @returns {Function} returns.deleteAIChatConversation - Function to delete AI chat conversation
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/AIChatConversation-Hooks} - AI Chat hooks documentation
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions} - Actions layer documentation
+ * @description Hook that returns all AI chat conversation mutation functions for convenient access.
+ *
+ * @returns {Object} Collection of all AI chat conversation mutation functions
+ * @returns {Function} result.createAIChatConversation - Create AI chat conversation mutation function
+ * @returns {Function} result.updateAIChatConversation - Update AI chat conversation mutation function
+ * @returns {Function} result.deleteAIChatConversation - Delete AI chat conversation mutation function
+ * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions} - Complete documentation
+ * @example
+ * const { createAIChatConversation, updateAIChatConversation, deleteAIChatConversation } = useAIChatConversationMutations();
+ * await createAIChatConversation.mutate(aiChatConversationData);
+ * await updateAIChatConversation.mutate(aiChatConversationId, updatedData);
+ * await deleteAIChatConversation.mutate(aiChatConversationId);
  */
-export function useAIChatConversationMutations(token = '') {
-  const createAIChatConversation = useCreateAIChatConversation(token);
-  const updateAIChatConversation = useUpdateAIChatConversation(token);
-  const deleteAIChatConversation = useDeleteAIChatConversation(token);
+export function useAIChatConversationMutations() {
+  const createAIChatConversation = useCreateAIChatConversation();
+  const updateAIChatConversation = useUpdateAIChatConversation();
+  const deleteAIChatConversation = useDeleteAIChatConversation();
 
-  return useMemo(
-    () => ({
-      createAIChatConversation,
-      updateAIChatConversation,
-      deleteAIChatConversation,
-    }),
-    [createAIChatConversation, updateAIChatConversation, deleteAIChatConversation]
-  );
+  return {
+    createAIChatConversation,
+    updateAIChatConversation,
+    deleteAIChatConversation,
+  };
 }

@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import PropTypes from 'prop-types';
+import { useUser } from '@auth0/nextjs-auth0/client';
 
 import Box from '@mui/material/Box';
 import Container from '@mui/material/Container';
@@ -16,8 +17,6 @@ import { ProductUpgradeDialog } from 'src/components/product';
 
 import { UserSignUpView } from 'src/sections/user/view';
 import { ProductUpgradeView } from 'src/sections/product/view';
-
-import { useAuthContext } from 'src/auth/hooks';
 /**
  * RoleBasedGuard - Enforces role-based access control for protected routes/components.
  *
@@ -94,9 +93,11 @@ export function RoleBasedGuard(props) {
   const isDialogOpen = dialogOpen !== undefined ? dialogOpen : internalDialogOpen;
   const handleDialogClose = onDialogClose || (() => setInternalDialogOpen(false));
 
-  const { user, loading } = useAuthContext();
+  const { user, isLoading: loading } = useUser();
 
-  const currentRole = user?.role || 'public';
+  // Extract role from Auth0 user object
+  const userRoles = user?.['https://pdxartwalks.com/roles'] || user?.['https://cityartwalks.com/roles'] || user?.roles || [];
+  const currentRole = userRoles[0] || 'public';
 
   // Show loading while auth system is still loading
   if (loading) {

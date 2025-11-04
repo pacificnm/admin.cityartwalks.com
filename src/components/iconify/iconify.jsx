@@ -7,7 +7,7 @@ import { mergeClasses } from 'minimal-shared/utils';
 import { styled } from '@mui/material/styles';
 
 import { iconifyClasses } from './classes';
-import { allIconNames, registerIcons } from './register-icons';
+import { registerIcons } from './register-icons';
 
 // ----------------------------------------------------------------------
 

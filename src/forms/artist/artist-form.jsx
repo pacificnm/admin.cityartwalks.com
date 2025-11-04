@@ -4,47 +4,48 @@
  * @namespace CityArtWalks.Forms.Artist
  */
 
-'use client';
+"use client";
 
-import { useForm } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
 
-import Box from '@mui/material/Box';
-import Card from '@mui/material/Card';
-import Stack from '@mui/material/Stack';
-import Button from '@mui/material/Button';
-import Divider from '@mui/material/Divider';
-import Typography from '@mui/material/Typography';
+import Box from "@mui/material/Box";
+import Typography from "@mui/material/Typography";
 
-import { debugError } from 'src/lib/debug';
-import { useCreateArtist, useUpdateArtist } from 'src/actions/artist/hooks';
+import { FormService } from "src/services/form-service";
+import { useCreateArtist, useUpdateArtist } from "src/actions/artist/hooks";
 import {
   createArtistSchema,
   updateArtistSchema,
   defaultArtistValues,
   getCreateArtistDefaults,
-} from 'src/validators/artist';
+} from "src/validators/artist";
 import {
   ElementName,
   ElementSlug,
   ElementStatus,
   ElementWebsite,
+  ElementFormRow,
   ElementFacebook,
   ElementLocation,
+  ElementSystemId,
   ElementViewCount,
+  ElementCreatedAt,
+  ElementCreatedBy,
+  ElementUpdatedAt,
+  ElementUpdatedBy,
   ElementArtistBio,
   ElementBirthDate,
   ElementDeathDate,
   ElementInstagram,
+  ElementFormActions,
+  ElementFormDivider,
   ElementArtistMetaTitle,
   ElementArtistMetaKeywords,
   ElementArtistMetaDescription,
-} from 'src/forms/elements';
+} from "src/forms/elements";
 
-import { toast } from 'src/components/snackbar';
-import { Form } from 'src/components/hook-form';
-
-import { useAuthContext } from 'src/auth/hooks';
+import { Form } from "src/components/hook-form";
 
 /**
  * @memberof CityArtWalks.Forms.Artist
@@ -67,285 +68,156 @@ import { useAuthContext } from 'src/auth/hooks';
  * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Artist} - Artist entity documentation
  * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Forms} - Forms documentation
  */
-export function ArtistForm({ currentArtist = null, initialValues = {}, onSuccess, onCancel }) {
-  const { accessToken } = useAuthContext();
+export function ArtistForm({
+  currentArtist = null,
+  initialValues = {},
+  onSuccess,
+  onCancel,
+}) {
   const isEdit = Boolean(currentArtist?.artistId);
 
   // Use appropriate hooks for create/update operations
-  const createArtist = useCreateArtist(accessToken);
-  const updateArtist = useUpdateArtist(accessToken);
+  const createArtist = useCreateArtist();
+  const updateArtist = useUpdateArtist();
 
-  // Get default values using appropriate function based on operation
-  const baseDefaults = isEdit ? defaultArtistValues(currentArtist) : getCreateArtistDefaults();
-
-  // Merge with initial values for new artists
-  const defaultValues = isEdit ? baseDefaults : { ...baseDefaults, ...initialValues };
+  // Get default values using FormService
+  const defaultValues = FormService.getFormDefaults(isEdit, {
+    currentEntity: currentArtist,
+    entityDefaultsFunc: defaultArtistValues,
+    createDefaultsFunc: getCreateArtistDefaults,
+    initialValues,
+  });
 
   // Use appropriate schema based on operation type
   const validationSchema = isEdit ? updateArtistSchema : createArtistSchema;
 
   const methods = useForm({
-    mode: 'onSubmit',
+    mode: "onSubmit",
     resolver: zodResolver(validationSchema),
     defaultValues,
     values: defaultValues, // Always use sanitized values
   });
 
-  const {
-    reset,
-    handleSubmit,
-    formState: { isSubmitting },
-  } = methods;
+  const { reset, handleSubmit } = methods;
 
   /**
    * @memberof CityArtWalks.Forms.Artist.ArtistForm
    * @function onSubmit
-   * @description Handles form submission for both create and update operations.
+   * @description Handles form submission for both create and update operations using FormService.
    * @param {Object} data - Validated form data from react-hook-form
    * @returns {Promise<void>}
    * @throws {Error} When API operation fails or validation errors occur
    */
   const onSubmit = handleSubmit(async (data) => {
-    try {
-      let result;
-
-      if (isEdit) {
-        // Update existing artist
-        if (!currentArtist?.artistId) {
-          debugError(
-            'CityArtWalks.Forms.Artist.ArtistForm.onSubmit',
-            'Artist ID is required for update operation',
-            {
-              currentArtist: currentArtist ? 'provided' : 'null',
-              hasArtistId: !!currentArtist?.artistId,
-            }
-          );
-          toast.error('Artist ID is required for update operation');
-          return;
-        }
-
-        result = await updateArtist(currentArtist.artistId, data);
-
-        if (!result) {
-          debugError(
-            'CityArtWalks.Forms.Artist.ArtistForm.onSubmit',
-            'Update artist operation returned null result',
-            {
-              artistId: currentArtist.artistId,
-              formData: data ? 'provided' : 'missing',
-            }
-          );
-          toast.error('Failed to update artist - no response from server');
-          return;
-        }
-
-        // Reset form with updated data
-        const updatedArtistData = result.data || result || currentArtist;
-        reset(defaultArtistValues(updatedArtistData));
-        toast.success('Your artist has been updated successfully!');
-      } else {
-        // Create new artist
-        result = await createArtist(data);
-
-        if (!result) {
-          debugError(
-            'CityArtWalks.Forms.Artist.ArtistForm.onSubmit',
-            'Create artist operation returned null result',
-            {
-              formData: data ? 'provided' : 'missing',
-            }
-          );
-          toast.error('Failed to create artist - no response from server');
-          return;
-        }
-
-        // Reset form with created artist data
-        const createdArtistData = result.data || result;
-        reset(defaultArtistValues(createdArtistData));
-        toast.success('Artist created successfully!');
-      }
-
-      // Call success callback if provided
-      if (onSuccess && typeof onSuccess === 'function') {
-        const artistData = result.data || result;
-        onSuccess({
-          result,
-          operation: isEdit ? 'update' : 'create',
-          artistData,
-          isEdit,
-          // Convenience property for quick access to the artist
-          artist: artistData,
-          // For backward compatibility
-          data: artistData,
-        });
-      }
-    } catch (error) {
-      // Enhanced error handling with proper logging
-      debugError(
-        'CityArtWalks.Forms.Artist.ArtistForm.onSubmit',
-        `Failed to ${isEdit ? 'update' : 'create'} artist`,
-        {
-          error: error.message,
-          stack: error.stack,
-          operation: isEdit ? 'update' : 'create',
-          artistId: currentArtist?.artistId,
-          formData: data ? Object.keys(data).join(', ') : 'missing',
-          timestamp: new Date().toISOString(),
-          isEdit,
-        }
-      );
-
-      // Enhanced error message based on error type
-      let errorMessage = `Failed to ${isEdit ? 'update' : 'create'} artist. Please check your information and try again.`;
-
-      if (error.message.includes('validation')) {
-        errorMessage = 'Please check the form fields for validation errors.';
-      } else if (error.message.includes('network')) {
-        errorMessage = 'Network error. Please check your connection and try again.';
-      }
-
-      toast.error(errorMessage);
-    }
+    await FormService.handleEntitySubmit(isEdit, {
+      entityName: 'artist',
+      entityId: currentArtist?.artistId,
+      currentEntity: currentArtist,
+      data,
+      operations: {
+        create: () => createArtist(data),
+        update: (id) => updateArtist(id, data),
+      },
+      form: {
+        reset,
+        getDefaultValues: defaultArtistValues,
+      },
+      callbacks: {
+        onSuccess,
+      },
+      logging: {
+        namespace: 'CityArtWalks.Forms.Artist.ArtistForm.onSubmit',
+      },
+    });
   });
-
-  /**
-   * @memberof CityArtWalks.Forms.Artist.ArtistForm
-   * @function handleCancel
-   * @description Handles form cancellation by resetting to original values.
-   */
-  const handleCancel = () => {
-    reset(defaultValues);
-    if (onCancel && typeof onCancel === 'function') {
-      onCancel();
-    }
-  };
 
   return (
     <Form methods={methods} onSubmit={onSubmit}>
-      <Card sx={{ p: 3 }}>
-        {/* Primary Information Section */}
-        <Box
-          sx={{
-            rowGap: 3,
-            columnGap: 2,
-            display: 'grid',
-            gridTemplateColumns: {
-              xs: 'repeat(1, 1fr)',
-              sm: 'repeat(2, 1fr)',
-              md: 'repeat(3, 1fr)',
-            },
-          }}
-        >
-          <ElementName name="name" label="Artist Name" required />
-          <ElementSlug name="slug" label="Slug" sourceField="name" disabled />
-          <ElementStatus name="status" label="Status" />
-        </Box>
+      {/* Primary Information Section */}
+      <ElementFormRow columns={3}>
+        <ElementName name="name" label="Artist Name" required />
+        <ElementSlug name="slug" label="Slug" sourceField="name" disabled />
+        <ElementStatus name="status" label="Status" />
+      </ElementFormRow>
 
-        <Box sx={{ mt: 3 }}>
-          <ElementArtistBio name="biography" label="Biography" currentArtist={currentArtist} />
-        </Box>
+      <ElementFormRow columns={1}>
+        <ElementArtistBio
+          name="biography"
+          label="Biography"
+          currentArtist={currentArtist}
+        />
+      </ElementFormRow>
 
-        {/* Date Information */}
-        <Divider sx={{ my: 3 }} />
-        <Box
-          sx={{
-            rowGap: 3,
-            columnGap: 2,
-            display: 'grid',
-            gridTemplateColumns: { xs: 'repeat(1, 1fr)', sm: 'repeat(2, 1fr)' },
-          }}
-        >
-          <ElementBirthDate name="birthDate" label="Birth Date" />
-          <ElementDeathDate name="deathDate" label="Death Date" />
-        </Box>
+      {/* Date Information */}
+      <ElementFormDivider />
+      <ElementFormRow>
+        <ElementBirthDate name="birthDate" label="Birth Date" />
+        <ElementDeathDate name="deathDate" label="Death Date" />
+      </ElementFormRow>
 
-        {/* Social Media Information */}
-        <Divider sx={{ my: 3 }} />
-        <Box
-          sx={{
-            rowGap: 3,
-            columnGap: 2,
-            display: 'grid',
-            gridTemplateColumns: { xs: 'repeat(1, 1fr)', sm: 'repeat(3, 1fr)' },
-          }}
-        >
-          <ElementFacebook name="facebook" label="Facebook" />
-          <ElementInstagram name="instagram" label="Instagram" />
-          <ElementWebsite name="website" label="Website" />
-        </Box>
+      {/* Social Media Information */}
+      <ElementFormDivider />
+      <ElementFormRow columns={3}>
+        <ElementFacebook name="facebook" label="Facebook" />
+        <ElementInstagram name="instagram" label="Instagram" />
+        <ElementWebsite name="website" label="Website" />
+      </ElementFormRow>
 
-        {/* Location Information */}
-        <Divider sx={{ my: 3 }} />
-        <ElementLocation />
+      {/* Location Information */}
+      <ElementFormDivider />
+      <ElementLocation />
 
-        {/* SEO Meta Tags Section */}
-        <Divider sx={{ my: 3 }} />
-        <Box sx={{ mb: 2 }}>
-          <Typography variant="h6" gutterBottom>
-            SEO Meta Tags
-          </Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-            Optimize your artist profile for search engines with custom meta tags. These help
-            improve visibility and click-through rates in search results.
-          </Typography>
-        </Box>
+      {/* SEO Meta Tags Section */}
+      <ElementFormDivider />
+      <Box sx={{ mb: 2 }}>
+        <Typography variant="h6" gutterBottom>
+          SEO Meta Tags
+        </Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+          Optimize your artist profile for search engines with custom meta tags.
+          These help improve visibility and click-through rates in search
+          results.
+        </Typography>
+      </Box>
+      <ElementFormRow columns={1}>
+        <ElementArtistMetaTitle
+          name="metaTitle"
+          label="Meta Title"
+          currentArtist={currentArtist}
+        />
+        <ElementArtistMetaDescription
+          name="metaDescription"
+          label="Meta Description"
+          currentArtist={currentArtist}
+        />
+        <ElementArtistMetaKeywords
+          name="metaKeywords"
+          label="Meta Keywords"
+          currentArtist={currentArtist}
+        />
+      </ElementFormRow>
 
-        <Box
-          sx={{
-            rowGap: 3,
-            columnGap: 2,
-            display: 'grid',
-            gridTemplateColumns: { xs: 'repeat(1, 1fr)' },
-          }}
-        >
-          <ElementArtistMetaTitle
-            name="metaTitle"
-            label="Meta Title"
-            currentArtist={currentArtist}
-          />
+      {/* System Information (Edit Only) */}
+      {isEdit && (
+        <>
+          <ElementFormDivider />
+          <ElementFormRow>
+            <ElementSystemId name="artistId" label="Artist ID" />
+            <ElementViewCount name="viewCount" label="Views" disabled />
+            <ElementCreatedAt />
+            <ElementCreatedBy createdByUser={currentArtist.CreatedByUser} />
+            <ElementUpdatedAt />
+            <ElementUpdatedBy updatedByUser={currentArtist.UpdatedByUser} />
+          </ElementFormRow>
+        </>
+      )}
 
-          <ElementArtistMetaDescription
-            name="metaDescription"
-            label="Meta Description"
-            currentArtist={currentArtist}
-          />
-
-          <ElementArtistMetaKeywords
-            name="metaKeywords"
-            label="Meta Keywords"
-            currentArtist={currentArtist}
-          />
-        </Box>
-
-        {/* System Information (Edit Only) */}
-        {isEdit && (
-          <>
-            <Divider sx={{ my: 3 }} />
-            <Box
-              sx={{
-                rowGap: 3,
-                columnGap: 2,
-                display: 'grid',
-                gridTemplateColumns: { xs: 'repeat(1, 1fr)', sm: 'repeat(1, 1fr)' },
-              }}
-            >
-              <ElementViewCount name="viewCount" label="Views" disabled />
-            </Box>
-          </>
-        )}
-
-        {/* Form Actions */}
-        <Stack direction="row" spacing={2} sx={{ mt: 3, justifyContent: 'flex-end' }}>
-          {onCancel && (
-            <Button variant="outlined" onClick={handleCancel} disabled={isSubmitting}>
-              Cancel
-            </Button>
-          )}
-          <Button type="submit" variant="contained" loading={isSubmitting} disabled={isSubmitting}>
-            {isEdit ? 'Save changes' : 'Create artist'}
-          </Button>
-        </Stack>
-      </Card>
+      {/* Form Actions */}
+      <ElementFormActions
+        onCancel={onCancel ? () => FormService.handleCancel(reset, defaultValues, onCancel) : undefined}
+        isEdit={isEdit}
+        createLabel="Create artist"
+      />
     </Form>
   );
 }

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useUser } from '@auth0/nextjs-auth0/client';
 
 import { useRouter, useSearchParams } from 'src/routes/hooks';
 
@@ -8,15 +9,13 @@ import { CONFIG } from 'src/global-config';
 
 import { SplashScreen } from 'src/components/loading-screen';
 
-import { useAuthContext } from '../hooks';
-
 // ----------------------------------------------------------------------
 
 export function GuestGuard({ children }) {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  const { loading, authenticated } = useAuthContext();
+  const { user, isLoading: loading } = useUser();
 
   const returnTo = searchParams.get('returnTo') || CONFIG.auth.redirectPath;
 
@@ -27,7 +26,7 @@ export function GuestGuard({ children }) {
       return;
     }
 
-    if (authenticated) {
+    if (user) {
       router.replace(returnTo);
       return;
     }
@@ -38,7 +37,7 @@ export function GuestGuard({ children }) {
   useEffect(() => {
     checkPermissions();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authenticated, loading]);
+  }, [user, loading]);
 
   if (isChecking) {
     return <SplashScreen />;

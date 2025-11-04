@@ -1,319 +1,237 @@
-'use client';
-
-import { useState, useCallback } from 'react';
-import { useBoolean, usePopover } from 'minimal-shared/hooks';
+/**
+ * @file image-table-row.jsx
+ * @description Table row component for displaying individual image data
+ * @namespace CityArtWalks.Components.Image
+ * @version 1.0.0
+ * @author Jaimie Garner
+ */
 
 import Box from '@mui/material/Box';
 import Chip from '@mui/material/Chip';
-import Link from '@mui/material/Link';
 import Stack from '@mui/material/Stack';
-import Button from '@mui/material/Button';
-import MenuList from '@mui/material/MenuList';
-import MenuItem from '@mui/material/MenuItem';
+import Avatar from '@mui/material/Avatar';
+import Tooltip from '@mui/material/Tooltip';
 import TableRow from '@mui/material/TableRow';
-import Checkbox from '@mui/material/Checkbox';
 import TableCell from '@mui/material/TableCell';
-import IconButton from '@mui/material/IconButton';
 import Typography from '@mui/material/Typography';
+import IconButton from '@mui/material/IconButton';
 
 import { paths } from 'src/routes/paths';
+import { RouterLink } from 'src/routes/components';
 
-import { Label } from 'src/components/label';
-import { UserBadge } from 'src/components/user';
-import { Iconify } from 'src/components/iconify';
-import { ConfirmDialog } from 'src/components/custom-dialog';
-import { CustomPopover } from 'src/components/custom-popover';
-import { EditIcon, ViewIcon, StarIcon, DeleteIcon, VerticalFillIcon } from 'src/components/icons';
+import { EditIcon, ViewIcon, DeleteIcon } from 'src/components/icons';
 
-import { RoleBasedGuard } from 'src/auth/guard';
+// ----------------------------------------------------------------------
 
 /**
- * Image Table Row component
- * Displays a single image row with all relevant information
- *
+ * @description Returns the color for a status chip based on the status value
+ * @param {string} status - The status value
+ * @returns {string} The color for the chip
+ */
+const getStatusColor = (status) => {
+  switch (status) {
+    case 'ACTIVE':
+      return 'success';
+    case 'PENDING':
+      return 'warning';
+    case 'REVIEW':
+      return 'info';
+    case 'ARCHIVED':
+      return 'default';
+    case 'BANNED':
+      return 'error';
+    case 'DELETED':
+      return 'error';
+    case 'REJECTED':
+      return 'error';
+    default:
+      return 'default';
+  }
+};
+
+// ----------------------------------------------------------------------
+
+/**
+ * @description Table row component for displaying individual image data.
+ * @memberof CityArtWalks.Components.Image
+ * @function ImageTableRow
  * @param {Object} props - Component props
- * @param {Object} props.row - Image data object
- * @param {boolean} props.selected - Whether row is selected
- * @param {Function} props.onSelectRow - Handler for row selection
- * @param {Function} props.onDeleteRow - Handler for row deletion
- * @param {Function} props.onEditRow - Handler for row editing
- * @param {Function} props.onViewRow - Handler for row viewing
- * @param {Function} props.onToggleFeatured - Handler for toggling featured status
- * @returns {JSX.Element} The image table row component
+ * @param {Object} props.row - Image data
+ * @param {boolean} props.selected - Whether the row is selected
+ * @param {Function} props.onViewRow - Handler for viewing image details
+ * @param {Function} props.onEditRow - Handler for editing image
+ * @param {Function} props.onDeleteRow - Handler for deleting image
+ * @param {Function} props.onViewUser - Handler for viewing user details
+ * @param {Function} props.onViewFullImage - Handler for viewing full image
+ * @returns {JSX.Element} The Image Table Row component.
  */
 export function ImageTableRow({
   row,
   selected,
-  onSelectRow,
-  onDeleteRow,
-  onEditRow,
   onViewRow,
-  onToggleFeatured,
+  onEditRow,
+  onDeleteRow,
+  onViewUser,
+  onViewFullImage,
 }) {
-  const menuActions = usePopover();
-  const confirmDialog = useBoolean();
-
-  const [loading, setLoading] = useState(false);
-
-  const handleToggleFeatured = useCallback(async () => {
-    try {
-      setLoading(true);
-      await onToggleFeatured(row.imageId, !row.featured);
-    } catch (error) {
-      console.error('Error toggling featured status:', error);
-    } finally {
-      setLoading(false);
-    }
-  }, [row.imageId, row.featured, onToggleFeatured]);
-
-  const handleDelete = useCallback(async () => {
-    try {
-      setLoading(true);
-      await onDeleteRow(row.imageId);
-    } catch (error) {
-      console.error('Error deleting image:', error);
-    } finally {
-      setLoading(false);
-      confirmDialog.onFalse();
-    }
-  }, [row.imageId, onDeleteRow, confirmDialog]);
-
-  const renderMenuActions = () => (
-    <CustomPopover
-      open={menuActions.open}
-      anchorEl={menuActions.anchorEl}
-      onClose={menuActions.onClose}
-      slotProps={{ arrow: { placement: 'right-top' } }}
-    >
-      <MenuList>
-        <MenuItem
-          onClick={() => {
-            onViewRow(row.imageId);
-            menuActions.onClose();
-          }}
-        >
-          <ViewIcon />
-          View
-        </MenuItem>
-
-        <MenuItem
-          onClick={() => {
-            onEditRow(row.imageId);
-            menuActions.onClose();
-          }}
-        >
-          <EditIcon />
-          Edit
-        </MenuItem>
-
-        <RoleBasedGuard allowedRoles={['ADMIN']} displayMode="hidden" protecting="ImageTableRow">
-          <MenuItem
-            onClick={() => {
-              handleToggleFeatured();
-              menuActions.onClose();
-            }}
-            disabled={loading}
-          >
-            <Iconify icon={row.featured ? 'solar:star-bold' : 'solar:star-outline'} />
-            {row.featured ? 'Remove Featured' : 'Make Featured'}
-          </MenuItem>
-        </RoleBasedGuard>
-
-        <MenuItem
-          onClick={() => {
-            confirmDialog.onTrue();
-            menuActions.onClose();
-          }}
-          sx={{ color: 'error.main' }}
-        >
-          <DeleteIcon />
-          Delete
-        </MenuItem>
-      </MenuList>
-    </CustomPopover>
-  );
-
-  const renderConfirmDialog = () => (
-    <ConfirmDialog
-      open={confirmDialog.value}
-      onClose={confirmDialog.onFalse}
-      title="Delete Image"
-      content="Are you sure you want to delete this image? This action cannot be undone."
-      action={
-        <Button variant="contained" color="error" onClick={handleDelete} disabled={loading}>
-          Delete
-        </Button>
-      }
-    />
-  );
-
-  const renderPrimary = (
-    <TableCell padding="checkbox">
-      <Checkbox
-        checked={selected}
-        onClick={onSelectRow}
-        disabled={loading}
-        inputProps={{ id: `row-checkbox-${row.imageId}` }}
-      />
-    </TableCell>
-  );
-
-  const renderImage = (
-    <TableCell sx={{ display: 'flex', alignItems: 'center' }}>
-      <Box
-        component="img"
-        src={row.url}
-        alt={row.caption || 'Image'}
-        sx={{
-          width: 48,
-          height: 48,
-          mr: 2,
-          borderRadius: 1,
-          objectFit: 'cover',
-          border: '1px solid',
-          borderColor: 'divider',
-        }}
-      />
-      <Stack spacing={0.5}>
-        <Typography variant="subtitle2" noWrap>
-          {row.caption || 'No caption'}
-        </Typography>
-        <Typography variant="body2" color="text.secondary" noWrap>
-          {row.filename || 'No filename'}
-        </Typography>
-      </Stack>
-    </TableCell>
-  );
-
-  const renderStatus = (
-    <TableCell>
-      <Label
-        variant="soft"
-        color={
-          (row.status === 'active' && 'success') ||
-          (row.status === 'inactive' && 'error') ||
-          'default'
-        }
-      >
-        {row.status}
-      </Label>
-    </TableCell>
-  );
-
-  const renderFeatured = (
-    <TableCell>
-      <Chip
-        size="small"
-        label={row.featured ? 'Featured' : 'Regular'}
-        color={row.featured ? 'warning' : 'default'}
-        variant={row.featured ? 'filled' : 'outlined'}
-        icon={row.featured ? <StarIcon width={12} /> : undefined}
-      />
-    </TableCell>
-  );
-
-  const renderRelations = (
-    <TableCell>
-      <Stack spacing={0.5}>
-        {row.Artist && (
-          <Typography variant="body2" color="text.secondary">
-            Artist:{' '}
-            <Link
-              href={paths.art.artist.details(row.Artist.slug)}
-              underline="hover"
-              color="primary"
-              sx={{ fontWeight: 'medium' }}
-            >
-              {row.Artist.name}
-            </Link>
-          </Typography>
-        )}
-        {row.ArtPiece && (
-          <Typography variant="body2" color="text.secondary">
-            Art Piece:{' '}
-            <Link
-              href={paths.art.artist.artwork.details(row.ArtPiece.Artist.slug, row.ArtPiece.slug)}
-              underline="hover"
-              color="primary"
-              sx={{ fontWeight: 'medium' }}
-            >
-              {row.ArtPiece.title}
-            </Link>
-          </Typography>
-        )}
-        {row.Path && (
-          <Typography variant="body2" color="text.secondary">
-            Path:{' '}
-            <Link
-              href={paths.dashboard.paths.details(row.Path.pathId)}
-              underline="hover"
-              color="primary"
-              sx={{ fontWeight: 'medium' }}
-            >
-              {row.Path.name}
-            </Link>
-          </Typography>
-        )}
-        {!row.Artist && !row.ArtPiece && !row.Path && row.User && (
-          <Typography variant="body2" color="text.secondary">
-            Created by:{' '}
-            <Link
-              href={paths.dashboard.user.edit(row.User.userId)}
-              underline="hover"
-              color="primary"
-              sx={{ fontWeight: 'medium' }}
-            >
-              {row.User.name}
-            </Link>
-          </Typography>
-        )}
-        {!row.Artist && !row.ArtPiece && !row.Path && !row.User && (
-          <Typography variant="body2" color="text.disabled">
-            No relations
-          </Typography>
-        )}
-      </Stack>
-    </TableCell>
-  );
-
-  const renderCreatedBy = (
-    <TableCell>
-      {row.createdBy ? (
-        <UserBadge userId={row.createdBy} size="small" showMemberSince={false} />
-      ) : (
-        <Typography variant="body2" color="text.disabled">
-          Unknown
-        </Typography>
-      )}
-    </TableCell>
-  );
-
-  const renderActions = (
-    <TableCell align="right">
-      <IconButton
-        color={menuActions.open ? 'inherit' : 'default'}
-        onClick={menuActions.onOpen}
-        disabled={loading}
-      >
-        <VerticalFillIcon />
-      </IconButton>
-    </TableCell>
-  );
-
   return (
-    <>
-      <TableRow hover selected={selected} sx={{ opacity: loading ? 0.6 : 1 }}>
-        {renderPrimary}
-        {renderImage}
-        {renderStatus}
-        {renderFeatured}
-        {renderRelations}
-        {renderCreatedBy}
-        {renderActions}
-      </TableRow>
-
-      {renderMenuActions()}
-      {renderConfirmDialog()}
-    </>
+    <TableRow hover selected={selected}>
+      <TableCell>
+        {row.url ? (
+          <Tooltip title="Click to view full image">
+            <Box
+              component="img"
+              src={row.url}
+              alt={row.title || 'Image'}
+              onClick={() => onViewFullImage(row.url, row.title)}
+              sx={{
+                width: 60,
+                height: 60,
+                borderRadius: 1,
+                objectFit: 'cover',
+                cursor: 'pointer',
+                '&:hover': {
+                  opacity: 0.8,
+                  transform: 'scale(1.05)',
+                  transition: 'all 0.2s ease-in-out',
+                },
+              }}
+            />
+          </Tooltip>
+        ) : (
+          <Box
+            sx={{
+              width: 60,
+              height: 60,
+              borderRadius: 1,
+              bgcolor: 'grey.300',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            N/A
+          </Box>
+        )}
+      </TableCell>
+      <TableCell>
+        <Box
+          component={RouterLink}
+          href={paths.image.details(row.imageId)}
+          sx={{
+            color: 'primary.main',
+            textDecoration: 'none',
+            fontWeight: 500,
+            '&:hover': {
+              textDecoration: 'underline',
+            },
+          }}
+        >
+          {row.title || 'Untitled'}
+        </Box>
+      </TableCell>
+      <TableCell>
+        {row.Artist ? (
+          <Box
+            component={RouterLink}
+            href={paths.artist.details(row.Artist.artistId)}
+            sx={{
+              color: 'text.secondary',
+              textDecoration: 'none',
+              '&:hover': {
+                color: 'primary.main',
+                textDecoration: 'underline',
+              },
+            }}
+          >
+            {row.Artist.name}
+          </Box>
+        ) : (
+          'N/A'
+        )}
+      </TableCell>
+      <TableCell>
+        {row.ArtPiece ? (
+          <Box
+            component={RouterLink}
+            href={paths.artPiece.details(row.ArtPiece.artPieceId)}
+            sx={{
+              color: 'text.secondary',
+              textDecoration: 'none',
+              '&:hover': {
+                color: 'primary.main',
+                textDecoration: 'underline',
+              },
+            }}
+          >
+            {row.ArtPiece.title}
+          </Box>
+        ) : (
+          'N/A'
+        )}
+      </TableCell>
+      <TableCell>
+        <Chip
+          label={row.featured ? 'Featured' : 'Not Featured'}
+          color={row.featured ? 'secondary' : 'default'}
+          size="small"
+          sx={{ fontWeight: 600 }}
+        />
+      </TableCell>
+      <TableCell>
+        {row.status ? (
+          <Chip
+            label={row.status}
+            color={getStatusColor(row.status)}
+            size="small"
+            sx={{ fontWeight: 600 }}
+          />
+        ) : (
+          'N/A'
+        )}
+      </TableCell>
+      <TableCell>
+        <Stack direction="row" spacing={1} alignItems="center">
+          {row.CreatedByUser ? (
+            <Tooltip
+              title={`Click to view ${row.CreatedByUser.name} (${row.CreatedByUser.email})`}
+            >
+              <Avatar
+                src={row.CreatedByUser.image}
+                alt={row.CreatedByUser.name}
+                onClick={() => onViewUser(row.CreatedByUser.userId)}
+                sx={{ width: 24, height: 24, cursor: 'pointer' }}
+              />
+            </Tooltip>
+          ) : (
+            <Avatar sx={{ width: 24, height: 24, bgcolor: 'grey.300', fontSize: '0.625rem' }}>
+              ?
+            </Avatar>
+          )}
+          <Typography variant="body2">
+            {row.createdAt ? new Date(row.createdAt).toLocaleDateString() : 'N/A'}
+          </Typography>
+        </Stack>
+      </TableCell>
+      <TableCell align="right">
+        <Stack direction="row" spacing={0.5}>
+          <Tooltip title="View">
+            <IconButton onClick={onViewRow} size="small" color="default">
+              <ViewIcon />
+            </IconButton>
+          </Tooltip>
+          <Tooltip title="Edit">
+            <IconButton onClick={onEditRow} size="small" color="primary">
+              <EditIcon />
+            </IconButton>
+          </Tooltip>
+          <Tooltip title="Delete">
+            <IconButton onClick={onDeleteRow} size="small" color="error">
+              <DeleteIcon />
+            </IconButton>
+          </Tooltip>
+        </Stack>
+      </TableCell>
+    </TableRow>
   );
 }

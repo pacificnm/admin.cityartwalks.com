@@ -1,486 +1,318 @@
 /**
- * React hooks for State operations using SWR and IndexedDB caching
- *
- * This module provides React hooks for State CRUD operations with SWR caching,
- * IndexedDB fallback, and automatic cache invalidation. All hooks delegate to
- * requests functions and provide consistent loading/error states.
- *
- * @namespace CityArtWalks.Actions.State.Hooks
- * @fileoverview React hooks for State data operations
+ * @file hooks.js
+ * @description SWR-based data fetching hooks for State.
  * @author Jaimie Garner
- * @version 2.1.1
- *
- * @requires useSWR - SWR library for data fetching
- * @requires React - React hooks (useMemo, useEffect)
- * @requires CityArtWalks.Lib.Debug - Debug logging utilities
- * @requires CityArtWalks.Lib.IndexedDB - IndexedDB caching utilities
- *
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Hooks}
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions}
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Requests}
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/State-Model}
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Schema#State}
+ * @version 2.1.0
+ * @namespace CityArtWalks.Actions.State.Hooks
+ * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions} - Complete documentation
+ * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Hooks} - Hooks documentation
+ * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/State} - State entity documentation
  */
 
-import useSWR, { useSWRConfig } from 'swr';
 import { useMemo, useEffect } from 'react';
 
-import { debugLog, debugError } from 'src/lib/debug';
-import { saveToIndexedDb, loadFromIndexedDb, buildCacheKeyFromSWRKey } from 'src/lib/indexDb';
+import { useBaseHook } from 'src/lib/base-hook';
 
-import * as requests from './requests.js';
+import { StateApiClient } from './requests';
 
-const swrOptions = {
-  revalidateIfStale: false,
-  revalidateOnFocus: false,
-  revalidateOnReconnect: false,
-  keepPreviousData: true,
-};
+// Create a single instance to use across all hooks
+const stateApiClient = new StateApiClient();
 
 /**
- * SWR hook for paginated states with IndexedDB caching support
- *
  * @memberof CityArtWalks.Actions.State.Hooks
  * @function useGetPaginatedStates
- * @param {Object} [filters={}] - Filter parameters object
- * @param {number} [page=1] - Page number for pagination
- * @param {number} [rowsPerPage=10] - Number of items per page
- * @param {string} [token=''] - Auth token for authorization
- * @param {number} [revalidate=600] - Revalidate interval in seconds
- * @param {*} [refreshKey] - Key to trigger manual refresh
- * @returns {Object} Paginated states result with IndexedDB caching
- * @throws {Error} When fetching fails or validation errors occur
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Hooks}
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions}
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Requests}
+ * @description Hook to get paginated states with full filtering, caching via IndexedDB.
+ *
+ * @param {Object} params - Filter parameters
+ * @param {number} [params.page=1] - Page number
+ * @param {number} [params.limit=10] - Results per page limit
+ * @param {string} [params.search=''] - Search term
+ * @param {boolean} [params.active] - Active status filter
+ * @param {number} [params.countryId] - Country ID filter
+ * @param {string} [params.slug] - Slug filter
+ * @param {string|null} [params.refreshKey=null] - Key to trigger refresh
+ * @param {number} [revalidate=600] - Optional ISR revalidate time in seconds
+ * @returns {Object} Result including loading states, errors, and complete API results
+ * @returns {Object} result.results - Complete API results object (data, pagination, performance, query metadata)
+ * @returns {boolean} result.statesLoading - Loading state
+ * @returns {Error} result.statesError - Error state
+ * @returns {boolean} result.statesValidating - Validation state
+ * @returns {boolean} result.statesEmpty - Empty state (no data)
+ * @returns {Function} result.mutate - SWR mutate function
+ * @throws {Error} When parameter validation fails
+ * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions} - Complete documentation
  */
-export function useGetPaginatedStates(
-  filters = {},
-  page = 1,
-  rowsPerPage = 10,
-  token = '',
-  revalidate = 600,
-  refreshKey
-) {
-  const revalidateMs = revalidate * 1000;
-  const { swrKey, cacheKey } = useMemo(() => {
-    const key = ['getPaginatedStates', page, rowsPerPage, JSON.stringify(filters), revalidate];
-    return {
-      swrKey: key,
-      cacheKey: buildCacheKeyFromSWRKey(key),
-    };
-  }, [page, rowsPerPage, filters, revalidate]);
+export function useGetPaginatedStates(params = {}, revalidate = 600) {
+  const baseHook = useBaseHook('CityArtWalks.Actions.State.Hooks');
 
-  const { data, isLoading, error, mutate } = useSWR(
+  const {
+    page = 1,
+    limit = 10,
+    search = '',
+    active,
+    countryId,
+    slug,
+    createdBy,
+    updatedBy,
+    refreshKey = null,
+  } = params;
+
+  const { swrKey } = useMemo(() => {
+    const key = [
+      'getPaginatedStates',
+      page,
+      limit,
+      search,
+      active,
+      countryId,
+      slug,
+      createdBy,
+      updatedBy,
+      revalidate,
+    ];
+    return baseHook.utils.generateKeys(key);
+  }, [
+    baseHook.utils,
+    page,
+    limit,
+    search,
+    active,
+    countryId,
+    slug,
+    createdBy,
+    updatedBy,
+    revalidate,
+  ]);
+
+  const { data, isLoading, error, isValidating, mutate } = baseHook.useSWRWithCache(
     swrKey,
     async () => {
-      try {
-        const response = await requests.getPaginatedStates(
-          page,
-          rowsPerPage,
-          filters,
-          token,
-          revalidate
-        );
-        if (response && cacheKey) {
-          await saveToIndexedDb(cacheKey, response);
-          debugLog(`[IndexedDB] Saved data for ${cacheKey}`);
-        }
-        return response;
-      } catch (err) {
-        debugError(
-          'CityArtWalks.Actions.State.Hooks.useGetPaginatedStates',
-          'Failed to fetch paginated states',
-          {
-            error: err.message,
-            filters,
-            page,
-            rowsPerPage,
-            token: token ? '[REDACTED]' : 'none',
-          }
-        );
-        throw err;
-      }
+      const response = await stateApiClient.getPaginatedStates(
+        { page, limit, search, active, countryId, slug, createdBy, updatedBy },
+        revalidate
+      );
+      return response;
     },
-    swrOptions
+    revalidate
   );
-
-  useEffect(() => {
-    if (!cacheKey || !mutate) return;
-    (async () => {
-      try {
-        const cached = await loadFromIndexedDb(cacheKey, revalidateMs);
-        if (cached) {
-          debugLog(`[IndexedDB] Cache hit for ${cacheKey}`);
-          mutate(cached, false);
-        }
-      } catch (cacheError) {
-        debugError(
-          'CityArtWalks.Actions.State.Hooks.useGetPaginatedStates',
-          'IndexedDB cache operation failed',
-          {
-            error: cacheError.message,
-            cacheKey,
-          }
-        );
-      }
-    })();
-  }, [cacheKey, mutate, revalidateMs]);
 
   useEffect(() => {
     if (refreshKey) mutate();
   }, [refreshKey, mutate]);
 
-  return useMemo(
-    () => ({
-      states: data?.data?.states || [],
-      paginationMeta: data?.data?.meta || { total: 0, page: 1, rowsPerPage: 10, totalPages: 0 },
+  return useMemo(() => {
+    const results = data?.results || {};
+    return {
+      results, // Complete API results object with data, pagination, performance, etc.
       statesLoading: isLoading,
       statesError: error,
-      statesEmpty: !isLoading && (!data?.data?.states || data?.data?.states.length === 0),
+      statesValidating: isValidating,
+      statesEmpty: !isLoading && (!results.data || results.data.length === 0),
       mutate,
-    }),
-    [data, isLoading, error, mutate]
-  );
+    };
+  }, [data, isLoading, error, isValidating, mutate]);
 }
 
 /**
- * SWR hook for fetching a single state by ID with IndexedDB caching
- *
  * @memberof CityArtWalks.Actions.State.Hooks
  * @function useGetStateById
- * @param {string|number} id - The unique identifier of the state
- * @param {string} [token=''] - Optional Bearer token for authorization
- * @param {number} [revalidate=600] - Revalidate interval in seconds
- * @returns {Object} State data with loading and error states
- * @throws {Error} When fetching fails or validation errors occur
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Hooks}
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions}
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Requests}
+ * @description Hook to get state by ID with IndexedDB caching.
+ *
+ * @param {string|number} id - The state ID
+ * @param {number} [revalidate=600] - Optional ISR revalidate time in seconds
+ * @returns {Object} Result including loading states, errors, and state data
+ * @throws {Error} When state ID is invalid or API request fails
+ * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions} - Complete documentation
  */
-export function useGetStateById(id, token = '', revalidate = 600) {
-  const revalidateMs = revalidate * 1000;
-  const { swrKey, cacheKey } = useMemo(() => {
-    if (!id) return { swrKey: null, cacheKey: null };
-    const key = ['getStateById', id, revalidate];
-    return {
-      swrKey: key,
-      cacheKey: buildCacheKeyFromSWRKey(key),
-    };
-  }, [id, revalidate]);
+export function useGetStateById(id, revalidate = 600) {
+  const baseHook = useBaseHook('CityArtWalks.Actions.State.Hooks');
 
-  const { data, isLoading, error, isValidating, mutate } = useSWR(
+  const { swrKey } = useMemo(() => {
+    if (!id) return { swrKey: null };
+    const key = ['getStateById', id, revalidate];
+    return baseHook.utils.generateKeys(key);
+  }, [baseHook.utils, id, revalidate]);
+
+  const { data, isLoading, error, isValidating, mutate } = baseHook.useSWRWithCache(
     swrKey,
     async () => {
-      try {
-        const response = await requests.getStateById(id, token, revalidate);
-        if (response && cacheKey) {
-          await saveToIndexedDb(cacheKey, response);
-          debugLog(`[IndexedDB] Saved data for ${cacheKey}`);
-        }
-        return response;
-      } catch (err) {
-        debugError(
-          'CityArtWalks.Actions.State.Hooks.useGetStateById',
-          'Failed to fetch state by ID',
-          {
-            error: err.message,
-            id,
-            token: token ? '[REDACTED]' : 'none',
-          }
-        );
-        throw err;
-      }
+      const response = await stateApiClient.getStateById(id, revalidate);
+      return response;
     },
-    swrOptions
+    revalidate
   );
 
-  useEffect(() => {
-    if (!cacheKey || !mutate) return;
-    (async () => {
-      try {
-        const cached = await loadFromIndexedDb(cacheKey, revalidateMs);
-        if (cached) {
-          debugLog(`[IndexedDB] Cache hit for ${cacheKey}`);
-          mutate(cached, false);
-        }
-      } catch (cacheError) {
-        debugError(
-          'CityArtWalks.Actions.State.Hooks.useGetStateById',
-          'IndexedDB cache operation failed',
-          {
-            error: cacheError.message,
-            cacheKey,
-            id,
-          }
-        );
-      }
-    })();
-  }, [cacheKey, id, mutate, revalidateMs]);
-
-  return useMemo(
-    () => ({
-      state: data?.data?.state || null,
+  return useMemo(() => {
+    const state = data?.results?.data || null;
+    return {
+      state,
       stateLoading: isLoading,
       stateError: error,
       stateValidating: isValidating,
-      stateEmpty: !isLoading && !data?.data?.state,
+      stateEmpty: !isLoading && !state,
       mutate,
-    }),
-    [data, isLoading, error, isValidating, mutate]
-  );
+    };
+  }, [data, isLoading, error, isValidating, mutate]);
 }
 
 /**
- * SWR hook for fetching a single state by slug with IndexedDB caching
- *
  * @memberof CityArtWalks.Actions.State.Hooks
  * @function useGetStateBySlug
- * @param {string} slug - The unique slug identifier for the state
- * @param {string} [token=''] - Optional Bearer token for authorization
- * @param {number} [revalidate=600] - Revalidate interval in seconds
- * @returns {Object} State data with loading and error states
- * @throws {Error} When fetching fails or validation errors occur
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Hooks}
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions}
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Requests}
+ * @description Hook to get state by slug with IndexedDB caching.
+ *
+ * @param {string} slug - The state slug
+ * @param {number} [revalidate=600] - Optional ISR revalidate time in seconds
+ * @returns {Object} Result including loading states, errors, and state data
+ * @throws {Error} When slug is invalid or API request fails
+ * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions} - Complete documentation
  */
-export function useGetStateBySlug(slug, token = '', revalidate = 600) {
-  const revalidateMs = revalidate * 1000;
-  const { swrKey, cacheKey } = useMemo(() => {
-    if (!slug) return { swrKey: null, cacheKey: null };
-    const key = ['getStateBySlug', slug, revalidate];
-    return {
-      swrKey: key,
-      cacheKey: buildCacheKeyFromSWRKey(key),
-    };
-  }, [slug, revalidate]);
+export function useGetStateBySlug(slug, revalidate = 600) {
+  const baseHook = useBaseHook('CityArtWalks.Actions.State.Hooks');
 
-  const { data, isLoading, error, isValidating, mutate } = useSWR(
+  const { swrKey } = useMemo(() => {
+    if (!slug) return { swrKey: null };
+    const key = ['getStateBySlug', slug, revalidate];
+    return baseHook.utils.generateKeys(key);
+  }, [baseHook.utils, slug, revalidate]);
+
+  const { data, isLoading, error, isValidating, mutate } = baseHook.useSWRWithCache(
     swrKey,
     async () => {
-      try {
-        const response = await requests.getStateBySlug(slug, token, revalidate);
-        if (response && cacheKey) {
-          await saveToIndexedDb(cacheKey, response);
-          debugLog(`[IndexedDB] Saved data for ${cacheKey}`);
-        }
-        return response;
-      } catch (err) {
-        debugError(
-          'CityArtWalks.Actions.State.Hooks.useGetStateBySlug',
-          'Failed to fetch state by slug',
-          {
-            error: err.message,
-            slug: slug ? '[REDACTED]' : 'none',
-            token: token ? '[REDACTED]' : 'none',
-          }
-        );
-        throw err;
-      }
+      const response = await stateApiClient.getStateBySlug(slug, revalidate);
+      return response;
     },
-    swrOptions
+    revalidate
   );
 
-  useEffect(() => {
-    if (!cacheKey || !mutate) return;
-    (async () => {
-      try {
-        const cached = await loadFromIndexedDb(cacheKey, revalidateMs);
-        if (cached) {
-          debugLog(`[IndexedDB] Cache hit for ${cacheKey}`);
-          mutate(cached, false);
-        }
-      } catch (cacheError) {
-        debugError(
-          'CityArtWalks.Actions.State.Hooks.useGetStateBySlug',
-          'IndexedDB cache operation failed',
-          {
-            error: cacheError.message,
-            cacheKey,
-            slug: slug ? '[REDACTED]' : 'none',
-          }
-        );
-      }
-    })();
-  }, [cacheKey, mutate, revalidateMs, slug]);
-
-  return useMemo(
-    () => ({
-      state: data?.data?.state || null,
+  return useMemo(() => {
+    const state = data?.results?.data || null;
+    return {
+      state,
       stateLoading: isLoading,
       stateError: error,
       stateValidating: isValidating,
-      stateEmpty: !isLoading && !data?.data?.state,
+      stateEmpty: !isLoading && !state,
       mutate,
-    }),
-    [data, isLoading, error, isValidating, mutate]
+    };
+  }, [data, isLoading, error, isValidating, mutate]);
+}
+
+/**
+ * @memberof CityArtWalks.Actions.State.Hooks
+ * @function useCreateState
+ * @description Hook to create a new state with validation and cache invalidation.
+ *
+ * @returns {Object} Mutation function and state
+ * @returns {Function} result.mutate - Function to execute the mutation (state) => Promise
+ * @returns {boolean} result.loading - Loading state of the mutation
+ * @returns {Error} result.error - Error state of the mutation
+ * @returns {Object} result.data - Result data from successful mutation
+ * @throws {Error} When state data validation fails or API request fails
+ * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions} - Complete documentation
+ * @example
+ * const createState = useCreateState();
+ * await createState.mutate(stateData);
+ */
+export function useCreateState() {
+  const baseHook = useBaseHook('CityArtWalks.Actions.State.Hooks');
+
+  return baseHook.useMutationWithInvalidation(
+    async (state) => {
+      const result = await stateApiClient.createState(state);
+      return result;
+    },
+    ['state', 'getPaginatedStates']
   );
 }
 
 /**
- * Hook for creating a new state with automatic cache invalidation
- *
- * @memberof CityArtWalks.Actions.State.Hooks
- * @function useCreateState
- * @param {string} [token=''] - Optional Bearer token for authorization
- * @returns {Function} Async function to create a state
- * @throws {Error} When state data validation fails or API request encounters an error
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Hooks}
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions}
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Requests}
- */
-export function useCreateState(token = '') {
-  const { mutate } = useSWRConfig();
-
-  return async (stateData) => {
-    try {
-      const result = await requests.createState(stateData, token);
-
-      // Invalidate SWR cache
-      mutate(
-        (key) => Array.isArray(key) && (key.includes('state') || key.includes('getPaginatedStates'))
-      );
-
-      // Clear related IndexedDB cache entries manually
-      const cachePatterns = ['state', 'getPaginatedStates'];
-      for (const pattern of cachePatterns) {
-        const cacheKey = buildCacheKeyFromSWRKey([pattern]);
-        await saveToIndexedDb(cacheKey, null);
-      }
-
-      return result;
-    } catch (error) {
-      debugError('CityArtWalks.Actions.State.Hooks.useCreateState', 'Failed to create state', {
-        error: error.message,
-        stateData: stateData
-          ? stateData instanceof FormData
-            ? 'FormData'
-            : 'provided'
-          : 'missing',
-        token: token ? '[REDACTED]' : 'none',
-      });
-      throw error;
-    }
-  };
-}
-
-/**
- * Hook for updating an existing state with automatic cache invalidation
- *
  * @memberof CityArtWalks.Actions.State.Hooks
  * @function useUpdateState
- * @param {string} [token=''] - Optional Bearer token for authorization
- * @returns {Function} Async function to update a state
- * @throws {Error} When state data validation fails or API request encounters an error
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Hooks}
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions}
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Requests}
+ * @description Hook to update an existing state with validation and cache invalidation.
+ *
+ * @returns {Object} Mutation function and state
+ * @returns {Function} result.mutate - Function to execute the mutation (id, stateData) => Promise
+ * @returns {boolean} result.loading - Loading state of the mutation
+ * @returns {Error} result.error - Error state of the mutation
+ * @returns {Object} result.data - Result data from successful mutation
+ * @throws {Error} When state ID is missing, data validation fails, or API request fails
+ * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions} - Complete documentation
+ * @example
+ * const updateState = useUpdateState();
+ * await updateState.mutate(stateId, updatedStateData);
  */
-export function useUpdateState(token = '') {
-  const { mutate } = useSWRConfig();
+export function useUpdateState() {
+  const baseHook = useBaseHook('CityArtWalks.Actions.State.Hooks');
 
-  return async (id, stateData) => {
-    try {
-      const result = await requests.updateState(id, stateData, token);
-
-      // Invalidate SWR cache - target specific keys
-      mutate(
-        (key) =>
-          Array.isArray(key) &&
-          (key.includes('state') ||
-            key.includes('getPaginatedStates') ||
-            (key.includes('getStateById') && key.includes(id)) ||
-            key.includes('getStateBySlug'))
-      );
-
-      // Clear related IndexedDB cache entries manually
-      const cachePatterns = ['state', 'getPaginatedStates'];
-      for (const pattern of cachePatterns) {
-        const cacheKey = buildCacheKeyFromSWRKey([pattern]);
-        await saveToIndexedDb(cacheKey, null);
+  return baseHook.useMutationWithInvalidation(
+    async (id, state) => {
+      // Validate parameters
+      if (!id) {
+        baseHook.logger.error('useUpdateState', 'State ID is required');
+        throw new Error('State ID is required');
       }
 
+      const result = await stateApiClient.updateState(id, state);
       return result;
-    } catch (error) {
-      debugError('CityArtWalks.Actions.State.Hooks.useUpdateState', 'Failed to update state', {
-        error: error.message,
-        stateId: id,
-        stateData: stateData
-          ? stateData instanceof FormData
-            ? 'FormData'
-            : 'provided'
-          : 'missing',
-        token: token ? '[REDACTED]' : 'none',
-      });
-      throw error;
-    }
-  };
+    },
+    ['state', 'getPaginatedStates']
+  );
 }
 
 /**
- * Hook for deleting a state with automatic cache invalidation
- *
  * @memberof CityArtWalks.Actions.State.Hooks
  * @function useDeleteState
- * @param {string} [token=''] - Optional Bearer token for authorization
- * @returns {Function} Async function to delete a state
- * @throws {Error} When state ID is invalid or API request encounters an error
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Hooks}
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions}
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Requests}
+ * @description Hook to delete a state with validation and cache invalidation.
+ *
+ * @returns {Object} Mutation function and state
+ * @returns {Function} result.mutate - Function to execute the mutation (id) => Promise
+ * @returns {boolean} result.loading - Loading state of the mutation
+ * @returns {Error} result.error - Error state of the mutation
+ * @returns {Object} result.data - Result data from successful mutation
+ * @throws {Error} When state ID is missing or API request fails
+ * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions} - Complete documentation
+ * @example
+ * const deleteState = useDeleteState();
+ * await deleteState.mutate(stateId);
  */
-export function useDeleteState(token = '') {
-  const { mutate } = useSWRConfig();
+export function useDeleteState() {
+  const baseHook = useBaseHook('CityArtWalks.Actions.State.Hooks');
 
-  return async (id) => {
-    try {
-      const result = await requests.deleteState(id, token);
-
-      // Invalidate SWR cache - comprehensive invalidation
-      mutate(
-        (key) =>
-          Array.isArray(key) &&
-          (key.includes('state') ||
-            key.includes('getPaginatedStates') ||
-            (key.includes('getStateById') && key.includes(id)) ||
-            key.includes('getStateBySlug'))
-      );
-
-      // Clear related IndexedDB cache entries manually
-      const cachePatterns = ['state', 'getPaginatedStates'];
-      for (const pattern of cachePatterns) {
-        const cacheKey = buildCacheKeyFromSWRKey([pattern]);
-        await saveToIndexedDb(cacheKey, null);
+  return baseHook.useMutationWithInvalidation(
+    async (id) => {
+      // Validate parameters
+      if (!id) {
+        baseHook.logger.error('useDeleteState', 'State ID is required');
+        throw new Error('State ID is required');
       }
 
+      const result = await stateApiClient.deleteState(id);
       return result;
-    } catch (error) {
-      debugError('CityArtWalks.Actions.State.Hooks.useDeleteState', 'Failed to delete state', {
-        error: error.message,
-        stateId: id,
-        token: token ? '[REDACTED]' : 'none',
-      });
-      throw error;
-    }
-  };
+    },
+    ['state', 'getPaginatedStates']
+  );
 }
 
 /**
- * Combined hook that provides all state mutation functions
- *
  * @memberof CityArtWalks.Actions.State.Hooks
  * @function useStateMutations
- * @param {string} [token=''] - Optional Bearer token for authorization
- * @returns {Object} Object containing all mutation functions
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Hooks}
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions}
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Requests}
+ * @description Hook that returns all state mutation functions for convenient access.
+ *
+ * @returns {Object} Collection of all state mutation functions
+ * @returns {Function} result.createState - Create state mutation function
+ * @returns {Function} result.updateState - Update state mutation function
+ * @returns {Function} result.deleteState - Delete state mutation function
+ * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions} - Complete documentation
+ * @example
+ * const { createState, updateState, deleteState } = useStateMutations();
+ * await createState.mutate(stateData);
+ * await updateState.mutate(stateId, updatedData);
+ * await deleteState.mutate(stateId);
  */
-export function useStateMutations(token = '') {
-  const createState = useCreateState(token);
-  const updateState = useUpdateState(token);
-  const deleteState = useDeleteState(token);
+export function useStateMutations() {
+  const createState = useCreateState();
+  const updateState = useUpdateState();
+  const deleteState = useDeleteState();
 
   return {
     createState,

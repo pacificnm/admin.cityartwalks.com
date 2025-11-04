@@ -1,131 +1,92 @@
 /**
- * React hooks for Art Harvesting workflow operations using SWR
- *
- * This module provides React hooks for art harvesting workflow operations with SWR caching,
- * IndexedDB fallback, and automatic cache invalidation. These hooks manage the complete
- * harvesting pipeline from extraction through batch processing to publication.
- *
+ * @file hooks.js
+ * @description SWR-based data fetching hooks for ArtHarvesting.
+ * @author Jaimie Garner
+ * @version 2.1.0
  * @namespace CityArtWalks.Actions.ArtHarvesting.Hooks
- * @fileoverview React hooks for art harvesting workflow operations
- * @version 1.0.0
- *
- * @requires useSWR - SWR library for data fetching
- * @requires React - React hooks (useMemo, useEffect)
- * @requires CityArtWalks.Lib.Debug - Debug logging utilities
- * @requires CityArtWalks.Lib.IndexedDB - IndexedDB caching utilities
- *
+ * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions} - Complete documentation
  * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Hooks} - Hooks documentation
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions} - Actions layer documentation
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Requests} - Requests patterns documentation
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Art-Harvesting-Workflow} - Art harvesting workflow documentation
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Schema#ArtHarvesting} - Database schema reference
+ * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/ArtHarvesting} - ArtHarvesting entity documentation
  */
 
-import { useSWRConfig } from 'swr';
+import { useMemo } from "react";
 
-import { debugLog, debugError } from 'src/lib/debug';
+import { useBaseHook } from "src/lib/base-hook";
 
-import * as requests from './requests.js';
+import { ArtHarvestingApiClient } from "./requests";
+
+// Create a single instance to use across all hooks
+const artHarvestingApiClient = new ArtHarvestingApiClient();
+
 
 /**
+ * Hook for attaching images from URLs to published art pieces.
  * @memberof CityArtWalks.Actions.ArtHarvesting.Hooks
  * @function useAttachImages
- * @description Hook for attaching images from URLs to published art pieces.
- * Downloads images, uploads to Vercel Blob storage, and creates Image records.
+ * @description Hook to attach images to art pieces with cache invalidation.
  *
- * @param {string} [token=''] - Optional Bearer token for authorization
- * @returns {Function} Async function to attach images to art piece
- * @returns {Promise<Object>} returns.result - Attachment results with created image records
+ * @returns {Object} Mutation function and state
+ * @returns {Function} result.mutate - Function to execute the mutation (attachConfig) => Promise
+ * @returns {boolean} result.loading - Loading state of the mutation
+ * @returns {Error} result.error - Error state of the mutation
+ * @returns {Object} result.data - Result data from successful mutation
  * @throws {Error} When attachment configuration is invalid or API request fails
- * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Art-Harvesting-Attach-Images} - Image attachment documentation
+ * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions} - Complete documentation
+ * @example
+ * const attachImages = useAttachImages();
+ * await attachImages.mutate(attachConfig);
  */
-export function useAttachImages(token = '') {
-  const { mutate } = useSWRConfig();
+export function useAttachImages() {
+  const baseHook = useBaseHook("CityArtWalks.Actions.ArtHarvesting.Hooks");
 
-  return async (attachConfig) => {
-    try {
-      debugLog(
-        'CityArtWalks.Actions.ArtHarvesting.Hooks.useAttachImages',
-        'Attaching images to art piece',
-        {
-          artPieceId: attachConfig?.artPieceId,
-          imageCount: Array.isArray(attachConfig?.imageUrls) ? attachConfig.imageUrls.length : 0,
-          hasToken: !!token,
-        }
-      );
+  return baseHook.useMutationWithInvalidation(
+    async (attachConfig) => {
+      // Validate parameters
+      if (!attachConfig || !attachConfig.artPieceId) {
+        baseHook.logger.error("useAttachImages", "Attachment configuration with artPieceId is required");
+        throw new Error("Attachment configuration with artPieceId is required");
+      }
 
-      const result = await requests.attachImages(attachConfig, token);
-
-      // Invalidate related SWR cache
-      mutate(
-        (key) =>
-          Array.isArray(key) &&
-          (key.includes('artPiece') ||
-            key.includes('getPaginatedArtPieces') ||
-            (key.includes('getArtPieceById') && key.includes(attachConfig.artPieceId)) ||
-            key.includes('getArtPieceBySlug'))
-      );
-
-      debugLog(
-        'CityArtWalks.Actions.ArtHarvesting.Hooks.useAttachImages',
-        'Successfully attached images and invalidated cache',
-        {
-          artPieceId: attachConfig.artPieceId,
-          attachedImages: result.attachedImages,
-          skippedImages: result.skippedImages,
-        }
-      );
-
+      const result = await artHarvestingApiClient.attachImages(attachConfig);
       return result;
-    } catch (error) {
-      debugError(
-        'CityArtWalks.Actions.ArtHarvesting.Hooks.useAttachImages',
-        'Failed to attach images',
-        {
-          error: error.message,
-          stack: error.stack,
-          artPieceId: attachConfig?.artPieceId,
-          imageCount: Array.isArray(attachConfig?.imageUrls) ? attachConfig.imageUrls.length : 0,
-        }
-      );
-      throw error;
-    }
-  };
+    },
+    ["artPiece", "getPaginatedArtPieces"]
+  );
 }
-
-// TODO: Implement SWR configuration
-// const swrOptions = {
-//   revalidateIfStale: false,
-//   revalidateOnFocus: false,
-//   revalidateOnReconnect: false,
-//   keepPreviousData: true,
-//   dedupingInterval: 30000,
-// };
 
 /**
  * TODO: Implement hook for extracting art pieces from external sources
  *
  * @memberof CityArtWalks.Actions.ArtHarvesting.Hooks
  * @function useExtractArtPieces
- * @param {string} [token=''] - Optional Bearer token for authorization
- * @returns {Function} Async function to extract art pieces from source
- * @returns {Promise<Object>} returns.result - Extraction results with created queue entries
+ * @description Hook to extract art pieces from external sources with cache invalidation.
+ * 
+ * @returns {Object} Mutation function and state
+ * @returns {Function} result.mutate - Function to execute the mutation (extractionConfig) => Promise
+ * @returns {boolean} result.loading - Loading state of the mutation
+ * @returns {Error} result.error - Error state of the mutation
+ * @returns {Object} result.data - Result data from successful mutation
  * @throws {Error} When extraction configuration is invalid or API request fails
+ *
  * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Art-Harvesting-Extract} - Extraction documentation
+ *
+ * Implementation notes:
+ * - Validate extraction configuration with extractArtPiecesSchema
+ * - Use baseHook.useMutationWithInvalidation to handle mutation and cache
+ * - Invalidate caches for: artPieceQueue, harvestBatch, verificationLog
+ * - Call artHarvestingApiClient.extractArtPieces(extractionConfig)
+ * - Follow pattern from useAttachImages above
  */
-export function useExtractArtPieces(token = '') {
-  // TODO: Implement extraction hook with SWR and IndexedDB cache invalidation
+export function useExtractArtPieces() {
+  const baseHook = useBaseHook("CityArtWalks.Actions.ArtHarvesting.Hooks");
 
-  return async (extractionConfig) => {
-    // TODO: Implement extraction logic following guidelines from:    // .github/instructions/hooks.instructions.md
-
-    // Expected flow:    // 1. Validate extraction configuration
-    // 2. Call requests.extractArtPieces with configuration
-    // 3. Invalidate related caches (art-piece-queue, harvest-batch)
-    // 4. Return extraction results
-
-    throw new Error('useExtractArtPieces not implemented yet');
-  };
+  return baseHook.useMutationWithInvalidation(
+    async (extractionConfig) => {
+      // TODO: Implement extraction logic
+      throw new Error("useExtractArtPieces not implemented yet");
+    },
+    ["artPieceQueue", "harvestBatch", "verificationLog"]
+  );
 }
 
 /**
@@ -133,25 +94,34 @@ export function useExtractArtPieces(token = '') {
  *
  * @memberof CityArtWalks.Actions.ArtHarvesting.Hooks
  * @function useBatchProcessArtPieces
- * @param {string} [token=''] - Optional Bearer token for authorization
- * @returns {Function} Async function to process art pieces in batches
- * @returns {Promise<Object>} returns.result - Batch processing results with updated statuses
+ * @description Hook to batch process art pieces in the queue with cache invalidation.
+ * 
+ * @returns {Object} Mutation function and state
+ * @returns {Function} result.mutate - Function to execute the mutation (batchConfig) => Promise
+ * @returns {boolean} result.loading - Loading state of the mutation
+ * @returns {Error} result.error - Error state of the mutation
+ * @returns {Object} result.data - Result data from successful mutation
  * @throws {Error} When batch configuration is invalid or API request fails
+ *
  * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Art-Harvesting-Batch} - Batch processing documentation
+ *
+ * Implementation notes:
+ * - Validate batch configuration with batchProcessArtPiecesSchema
+ * - Use baseHook.useMutationWithInvalidation to handle mutation and cache
+ * - Invalidate caches for: artPieceQueue, harvestBatch, verificationLog
+ * - Call artHarvestingApiClient.batchProcessArtPieces(batchConfig)
+ * - Follow pattern from useAttachImages above
  */
-export function useBatchProcessArtPieces(token = '') {
-  // TODO: Implement batch processing hook with SWR and IndexedDB cache invalidation
+export function useBatchProcessArtPieces() {
+  const baseHook = useBaseHook("CityArtWalks.Actions.ArtHarvesting.Hooks");
 
-  return async (batchConfig) => {
-    // TODO: Implement batch processing logic following guidelines
-
-    // Expected flow:    // 1. Validate batch configuration
-    // 2. Call requests.batchProcessArtPieces with configuration
-    // 3. Invalidate related caches (art-piece-queue, harvest-batch, verification-log)
-    // 4. Return batch processing results
-
-    throw new Error('useBatchProcessArtPieces not implemented yet');
-  };
+  return baseHook.useMutationWithInvalidation(
+    async (batchConfig) => {
+      // TODO: Implement batch processing logic
+      throw new Error("useBatchProcessArtPieces not implemented yet");
+    },
+    ["artPieceQueue", "harvestBatch", "verificationLog"]
+  );
 }
 
 /**
@@ -159,25 +129,34 @@ export function useBatchProcessArtPieces(token = '') {
  *
  * @memberof CityArtWalks.Actions.ArtHarvesting.Hooks
  * @function usePublishArtPieces
- * @param {string} [token=''] - Optional Bearer token for authorization
- * @returns {Function} Async function to publish art pieces from queue to public
- * @returns {Promise<Object>} returns.result - Publication results with created art pieces
+ * @description Hook to publish art pieces from queue to public with cache invalidation.
+ * 
+ * @returns {Object} Mutation function and state
+ * @returns {Function} result.mutate - Function to execute the mutation (publishConfig) => Promise
+ * @returns {boolean} result.loading - Loading state of the mutation
+ * @returns {Error} result.error - Error state of the mutation
+ * @returns {Object} result.data - Result data from successful mutation
  * @throws {Error} When publication configuration is invalid or API request fails
+ *
  * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Art-Harvesting-Publish} - Publication documentation
+ *
+ * Implementation notes:
+ * - Validate publication configuration with publishArtPiecesSchema
+ * - Use baseHook.useMutationWithInvalidation to handle mutation and cache
+ * - Invalidate caches for: artPieceQueue, artPiece, verificationLog
+ * - Call artHarvestingApiClient.publishArtPieces(publishConfig)
+ * - Follow pattern from useAttachImages above
  */
-export function usePublishArtPieces(token = '') {
-  // TODO: Implement publication hook with SWR and IndexedDB cache invalidation
+export function usePublishArtPieces() {
+  const baseHook = useBaseHook("CityArtWalks.Actions.ArtHarvesting.Hooks");
 
-  return async (publishConfig) => {
-    // TODO: Implement publication logic following guidelines
-
-    // Expected flow:    // 1. Validate publication configuration
-    // 2. Call requests.publishArtPieces with configuration
-    // 3. Invalidate related caches (art-piece-queue, art-piece, verification-log)
-    // 4. Return publication results
-
-    throw new Error('usePublishArtPieces not implemented yet');
-  };
+  return baseHook.useMutationWithInvalidation(
+    async (publishConfig) => {
+      // TODO: Implement publication logic
+      throw new Error("usePublishArtPieces not implemented yet");
+    },
+    ["artPieceQueue", "artPiece", "verificationLog"]
+  );
 }
 
 /**
@@ -185,72 +164,69 @@ export function usePublishArtPieces(token = '') {
  *
  * @memberof CityArtWalks.Actions.ArtHarvesting.Hooks
  * @function useGetHarvestingStatus
- * @param {string} [token=''] - Optional Bearer token for authorization
- * @param {number} [revalidate=300] - Revalidate interval in seconds (5 minutes default)
- * @returns {Object} Harvesting status data with loading and error states
+ * @description Hook to get harvesting workflow status and statistics with IndexedDB caching.
+ *
+ * @param {number} [revalidate=300] - Optional ISR revalidate time in seconds (5 minutes default)
+ * @returns {Object} Result including loading states, errors, and status data
  * @returns {Object} returns.harvestingStatus - Status object with counts and metrics
  * @returns {boolean} returns.harvestingStatusLoading - Loading state
  * @returns {Error} returns.harvestingStatusError - Error state
- * @returns {boolean} returns.harvestingStatusValidating - Revalidation state
+ * @returns {boolean} returns.harvestingStatusValidating - Validation state
  * @returns {Function} returns.mutate - SWR mutate function
+ *
+ * Implementation notes:
+ * - Create swrKey with ["getHarvestingStatus", revalidate]
+ * - Use baseHook.useSWRWithCache to fetch and cache status
+ * - Call artHarvestingApiClient.getHarvestingStatus(revalidate)
+ * - Return status object with loading, error, validating, mutate
+ * - Follow pattern from analytics hooks
  */
-export function useGetHarvestingStatus(token = '', revalidate = 300) {
-  // TODO: Implement status hook with SWR and IndexedDB caching
+export function useGetHarvestingStatus(revalidate = 300) {
+  const baseHook = useBaseHook("CityArtWalks.Actions.ArtHarvesting.Hooks");
 
+  useMemo(() => {
+    const key = ["getHarvestingStatus", revalidate];
+    return baseHook.utils.generateKeys(key);
+  }, [baseHook.utils, revalidate]);
+
+  // TODO: Implement actual SWR caching with baseHook.useSWRWithCache
+  // For now return stub to prevent errors
   return {
     harvestingStatus: null,
     harvestingStatusLoading: false,
     harvestingStatusError: null,
     harvestingStatusValidating: false,
     mutate: () => {},
-    // TODO: Implement actual hook logic with SWR, IndexedDB caching, and requests delegation
   };
 }
 
 /**
- * TODO: Implement combined hook that provides all art harvesting workflow functions
+ * Combined hook that provides all art harvesting mutation functions
  *
  * @memberof CityArtWalks.Actions.ArtHarvesting.Hooks
- * @function useArtHarvestingWorkflow
- * @param {string} [token=''] - Optional Bearer token for authorization
- * @returns {Object} Object containing all workflow functions
- * @returns {Function} returns.extractArtPieces - Function to extract art pieces from sources
- * @returns {Function} returns.batchProcessArtPieces - Function to batch process art pieces
- * @returns {Function} returns.publishArtPieces - Function to publish art pieces
- * @returns {Object} returns.harvestingStatus - Current status data
- * @returns {boolean} returns.harvestingStatusLoading - Status loading state
- * @returns {Function} returns.refreshStatus - Function to refresh status data
+ * @function useArtHarvestingMutations
+ * @description Hook that returns all art harvesting mutation functions for convenient access.
+ *
+ * @returns {Object} Collection of all art harvesting mutation functions
+ * @returns {Function} result.attachImages - Attach images mutation function
+ * @returns {Function} result.extractArtPieces - Extract art pieces mutation function (TODO)
+ * @returns {Function} result.batchProcessArtPieces - Batch process mutation function (TODO)
+ * @returns {Function} result.publishArtPieces - Publish art pieces mutation function (TODO)
+ * @see {@link https://github.com/pacificnm/cityartwalks.com/wiki/Actions} - Complete documentation
+ * @example
+ * const { attachImages, extractArtPieces, batchProcessArtPieces, publishArtPieces } = useArtHarvestingMutations();
+ * await attachImages.mutate(attachConfig);
  */
-export function useArtHarvestingWorkflow(token = '') {
-  const extractArtPieces = useExtractArtPieces(token);
-  const batchProcessArtPieces = useBatchProcessArtPieces(token);
-  const publishArtPieces = usePublishArtPieces(token);
-
-  const {
-    harvestingStatus,
-    harvestingStatusLoading,
-    harvestingStatusError,
-    mutate: refreshStatus,
-  } = useGetHarvestingStatus(token);
+export function useArtHarvestingMutations() {
+  const attachImages = useAttachImages();
+  const extractArtPieces = useExtractArtPieces();
+  const batchProcessArtPieces = useBatchProcessArtPieces();
+  const publishArtPieces = usePublishArtPieces();
 
   return {
+    attachImages,
     extractArtPieces,
     batchProcessArtPieces,
     publishArtPieces,
-    harvestingStatus,
-    harvestingStatusLoading,
-    harvestingStatusError,
-    refreshStatus,
   };
 }
-
-// TODO: When implementing the actual hooks:// 1. Import all required dependencies (SWR, React, debug, IndexedDB, requests)
-// 2. Implement SWR configuration object
-// 3. Implement each hook following the exact patterns from hooks.instructions.md
-// 4. Ensure complete delegation to requests functions
-// 5. Implement IndexedDB caching with fallback handling
-// 6. Implement proper error handling with debugError logging
-// 7. Implement cache invalidation for both SWR and IndexedDB in workflow hooks
-// 8. Test all hooks with proper parameter validation and error scenarios
-// 9. Coordinate cache invalidation across multiple entity types (queue, batch, logs, art pieces)
-// 10. Handle long-running operations with proper progress tracking

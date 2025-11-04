@@ -9,7 +9,7 @@
 
 import { CONFIG } from 'src/global-config';
 
-import { ArtistHomeView } from 'src/sections/artist/artist-home-view';
+import { ArtistListPage } from 'src/sections/artist/list';
 
 /**
  * Metadata information for the artist dashboard page.
@@ -25,15 +25,14 @@ export const metadata = {
 /**
  * The main page component for the artist dashboard view.
  *
- * @async
  * @function Page
  * @memberof CityArtWalks.Pages.Dashboard.Artist
- * @returns {Promise<JSX.Element>} The rendered artist dashboard view component
+ * @returns {JSX.Element} The rendered artist list view component
  *
  * @example
- * // This page is automatically rendered by Next.js at /dashboard/artist
- * // <ArtistHomeView /> provides the main dashboard interface
+ * // This page is automatically rendered by Next.js at /artist
+ * // <ArtistListPage /> provides the artist list interface
  */
-export default async function Page() {
-  return <ArtistHomeView />;
+export default function Page() {
+  return <ArtistListPage />;
 }

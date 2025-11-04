@@ -15,8 +15,6 @@ import CircularProgress from '@mui/material/CircularProgress';
 
 import { useGetPaginatedCities } from 'src/actions/city/hooks';
 
-import { useAuthContext } from 'src/auth/hooks';
-
 /**
  * @memberof CityArtWalks.Form.Element.City
  * @description ElementCity component renders a city selection dropdown based on the selected state.
@@ -72,7 +70,6 @@ export function ElementCity(props) {
     ...other
   } = props;
   const { control } = useFormContext();
-  const { accessToken } = useAuthContext();
   const labelId = `${name}-select-label`;
 
   // Use either selectedState or stateId prop
@@ -85,16 +82,17 @@ export function ElementCity(props) {
 
   // Create a custom hook call that conditionally fetches
   const citiesFetchResult = useGetPaginatedCities(
-    shouldFetchCities ? { stateId: effectiveStateId } : {}, // Pass stateId only when valid
-    1,
-    1000, // Get many cities for dropdown
-    accessToken // Pass authentication token
+    shouldFetchCities ? { stateId: effectiveStateId, page: 1, limit: 500 } : { page: 1, limit: 0 },
+    600 // revalidate seconds
   );
 
   // Extract results, but only use them if we should fetch cities
-  const { cities, citiesLoading, citiesError } = shouldFetchCities
+  const { results, citiesLoading, citiesError } = shouldFetchCities
     ? citiesFetchResult
-    : { cities: [], citiesLoading: false, citiesError: null };
+    : { results: { data: [] }, citiesLoading: false, citiesError: null };
+
+  // Extract cities from results
+  const cities = results?.data || [];
 
   // Handle loading and error states
   if (citiesLoading) {

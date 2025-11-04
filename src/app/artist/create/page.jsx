@@ -9,7 +9,7 @@
 
 import { CONFIG } from 'src/global-config';
 
-import { ArtistCreateView } from 'src/sections/artist/artist-create-view';
+import { ArtistCreateView } from 'src/sections/artist/create';
 
 /**
  * Metadata information for the artist creation page.
@@ -19,7 +19,7 @@ import { ArtistCreateView } from 'src/sections/artist/artist-create-view';
  * @property {string} title - The title of the artist creation page, dynamically including the application name
  */
 export const metadata = {
-  title: `Dashboard - Artist - ${CONFIG.appName}`,
+  title: `Artist Create - ${CONFIG.appName}`,
 };
 
 /**

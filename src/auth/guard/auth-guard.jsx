@@ -1,13 +1,12 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useUser } from '@auth0/nextjs-auth0/client';
 
 import { paths } from 'src/routes/paths';
 import { useRouter, usePathname } from 'src/routes/hooks';
 
 import { SplashScreen } from 'src/components/loading-screen';
-
-import { useAuthContext } from '../hooks';
 
 // ----------------------------------------------------------------------
 
@@ -17,7 +16,7 @@ export function AuthGuard({ children }) {
   const router = useRouter();
   const pathname = usePathname();
 
-  const { authenticated, loading, accessToken } = useAuthContext();
+  const { user, isLoading: loading } = useUser();
 
   const [isChecking, setIsChecking] = useState(true);
 
@@ -25,18 +24,6 @@ export function AuthGuard({ children }) {
     const queryString = new URLSearchParams({ returnTo: pathname }).toString();
     return `${currentPath}?${queryString}`;
   };
-
-  // Helper to check if a JWT is expired
-  function isTokenExpired(token) {
-    if (!token || typeof token !== 'string') return true;
-    try {
-      const [, payload] = token.split('.');
-      const { exp } = JSON.parse(atob(payload));
-      return exp * 1000 < Date.now();
-    } catch {
-      return true;
-    }
-  }
 
   const checkPermissions = async () => {
     if (loading) {
@@ -49,16 +36,9 @@ export function AuthGuard({ children }) {
       return;
     }
 
-    if (!authenticated) {
+    if (!user) {
       const redirectPath = createRedirectPath(signInPath);
       router.replace(redirectPath);
-      return;
-    }
-
-    // Check for valid access token
-    if (!accessToken || isTokenExpired(accessToken)) {
-      // Don't show spinner, let RoleBasedGuard handle redirect
-      setIsChecking(false);
       return;
     }
 
@@ -68,14 +48,14 @@ export function AuthGuard({ children }) {
   useEffect(() => {
     checkPermissions();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authenticated, loading, accessToken]);
+  }, [user, loading]);
 
   if (isChecking) {
     return <SplashScreen />;
   }
 
-  // Don't render children if token is missing/expired
-  if (!accessToken || isTokenExpired(accessToken)) {
+  // Don't render children if no user
+  if (!user) {
     return null;
   }
 

@@ -1,15 +1,15 @@
 # Refactor Hooks Chat Mode
 
 ## Objective
-Refactor entity hooks to follow the standardized SWR-based pattern with validation, caching, and proper error handling.
+Refactor entity hooks to follow the standardized SWR-based pattern with caching and proper error handling. **NO validation in hooks** - validation happens in forms and API clients.
 
 ## Pattern Reference
 Use `src/actions/user/hooks.js` as the canonical reference implementation.
 
 ## Prerequisites
 - Entity must have a completed ApiClient class (extending ApiClient from `@/lib/api-client`)
-- Validation schemas must exist in `src/validators/{entity}.js`
 - Understand the entity's data structure and relationships
+- Note: Validation schemas exist for forms and API clients, NOT for hooks
 
 ## Core Principles
 
@@ -29,11 +29,6 @@ Use `src/actions/user/hooks.js` as the canonical reference implementation.
 import { useMemo, useEffect } from "react";
 
 import { useBaseHook } from "src/lib/base-hook";
-import {
-  {entity}QuerySchema,
-  create{Entity}Schema,
-  update{Entity}Schema,
-} from "src/validators/{entity}";
 
 import { {Entity}ApiClient } from "./requests";
 
@@ -93,22 +88,7 @@ export function useGetPaginated{Entities}(params = {}, revalidate = 600) {
     refreshKey = null,
   } = params;
 
-  // Validate parameters using Zod schema
-  const validationResult = useMemo(
-    () =>
-      baseHook.validators.validateWithSchema(
-        { page, limit, search /* add filters */ },
-        {entity}QuerySchema,
-        "useGetPaginated{Entities}"
-      ),
-    [baseHook.validators, page, limit, search /* add filters */]
-  );
-
   const { swrKey } = useMemo(() => {
-    if (!validationResult.success) {
-      return { swrKey: null };
-    }
-
     const key = [
       "getPaginated{Entities}",
       page,
@@ -120,7 +100,6 @@ export function useGetPaginated{Entities}(params = {}, revalidate = 600) {
     return baseHook.utils.generateKeys(key);
   }, [
     baseHook.utils,
-    validationResult.success,
     page,
     limit,
     search,
@@ -176,21 +155,6 @@ export function useGetPaginated{Entities}(params = {}, revalidate = 600) {
 export function useGet{Entity}({entity}Id, revalidate = 600) {
   const baseHook = useBaseHook("CityArtWalks.Actions.{Entity}.Hooks");
 
-  // Validate {entity}Id parameter
-  useEffect(() => {
-    if (
-      {entity}Id &&
-      !baseHook.validators.validateWithSchema(
-        ["string", "number"],
-        {entity}Id,
-        "{entity}Id",
-        "useGet{Entity}"
-      )
-    ) {
-      // Validation handled by base hook
-    }
-  }, [baseHook.validators, {entity}Id]);
-
   const { swrKey } = useMemo(() => {
     if (!{entity}Id) return { swrKey: null };
     const key = ["get{Entity}", {entity}Id, revalidate];
@@ -245,16 +209,6 @@ export function useCreate{Entity}() {
 
   return baseHook.useMutationWithInvalidation(
     async ({entity}) => {
-      // Validate {entity} data if not FormData
-      if (!({entity} instanceof FormData)) {
-        baseHook.validators.validateWithSchema(
-          {entity},
-          create{Entity}Schema,
-          "useCreate{Entity}",
-          true // throw on error
-        );
-      }
-
       const result = await {entity}ApiClient.create{Entity}({entity});
       return result;
     },
@@ -287,16 +241,6 @@ export function useUpdate{Entity}() {
       if (!id) {
         baseHook.logger.error("useUpdate{Entity}", "{Entity} ID is required");
         throw new Error("{Entity} ID is required");
-      }
-
-      // Validate {entity} data if not FormData
-      if (!({entity} instanceof FormData)) {
-        baseHook.validators.validateWithSchema(
-          {entity},
-          update{Entity}Schema,
-          "useUpdate{Entity}",
-          true // throw on error
-        );
       }
 
       const result = await {entity}ApiClient.update{Entity}(id, {entity});
@@ -378,8 +322,8 @@ export function use{Entity}Mutations() {
 ### 1. Imports
 - **ALWAYS** import `useMemo` and `useEffect` from React
 - **ALWAYS** import `useBaseHook` from `src/lib/base-hook`
-- **ALWAYS** import validation schemas from `src/validators/{entity}`
 - **ALWAYS** import ApiClient from `./requests`
+- **NEVER** import validation schemas (validation happens in forms, not hooks)
 - **NEVER** import debug utilities, axios, or manual fetch
 
 ### 2. ApiClient Instance
@@ -390,7 +334,7 @@ export function use{Entity}Mutations() {
 - **ALWAYS** initialize with: `const baseHook = useBaseHook("CityArtWalks.Actions.{Entity}.Hooks");`
 - **ALWAYS** use `baseHook.useSWRWithCache` for queries
 - **ALWAYS** use `baseHook.useMutationWithInvalidation` for mutations
-- **ALWAYS** use `baseHook.validators.validateWithSchema` for validation
+- **NEVER** use `baseHook.validators.validateWithSchema` (validation = forms + API clients)
 - **ALWAYS** use `baseHook.logger.error` for error logging
 - **ALWAYS** use `baseHook.utils.generateKeys` for SWR keys
 
@@ -402,11 +346,12 @@ export function use{Entity}Mutations() {
 - **NEVER** manually construct cache keys
 
 ### 5. Validation
-- **ALWAYS** validate query parameters using Zod schemas
-- **ALWAYS** wrap validation in `useMemo` with proper dependencies
-- **ALWAYS** validate mutation data if not FormData
-- **ALWAYS** use `validateWithSchema` with `throwOnError: true` for mutations
-- **NEVER** skip validation for non-FormData inputs
+- **NEVER** validate in hooks - validation happens in forms and API clients
+- **NEVER** import or use Zod schemas in hooks
+- **NEVER** use `baseHook.validators.validateWithSchema` in hooks
+- **ONLY** validate that required IDs exist (simple null/undefined checks)
+- Form validation: React Hook Form + Zod schemas in form components
+- API validation: API clients handle server-side validation
 
 ### 6. Return Values
 - **Query Hooks MUST return:**
@@ -445,14 +390,16 @@ export function use{Entity}Mutations() {
 
 ### 11. Error Handling
 - **ALWAYS** use `baseHook.logger.error` for logging
-- **ALWAYS** throw errors in mutation hooks for validation failures
+- **ALWAYS** throw errors in mutation hooks for missing required IDs
 - **ALWAYS** include context in error logs (what failed, why)
 - **NEVER** use console.log or debugLog
+- **NEVER** throw validation errors (validation happens in forms/API)
 
-### 12. FormData Detection
-- **ALWAYS** check `data instanceof FormData` before validation
-- **SKIP** Zod validation for FormData (validated server-side)
-- **VALIDATE** all JSON objects with appropriate schemas
+### 12. FormData Handling
+- **NEVER** detect or check for FormData in hooks
+- **NEVER** validate FormData (or any data) in hooks
+- API clients handle FormData vs JSON automatically
+- Hooks simply pass data through to API client methods
 
 ## Entity-Specific Adaptations
 
@@ -476,13 +423,14 @@ For entity-specific mutations (e.g., `useUpdateUserProfileImage`):
 
 Before considering a hooks file complete:
 
-- [ ] All imports are correct (React, useBaseHook, validators, ApiClient)
+- [ ] All imports are correct (React, useBaseHook, ApiClient)
+- [ ] NO validation schema imports present
 - [ ] Single ApiClient instance created outside hooks
 - [ ] All query hooks use `baseHook.useSWRWithCache`
 - [ ] All mutation hooks use `baseHook.useMutationWithInvalidation`
 - [ ] SWR keys properly generated with `useMemo` and `generateKeys`
-- [ ] All parameters validated with Zod schemas
-- [ ] FormData detection implemented correctly
+- [ ] NO validation code in hooks (no validateWithSchema calls)
+- [ ] Only simple null/undefined checks for required IDs
 - [ ] Return values follow naming conventions
 - [ ] Cache invalidation specified for all mutations
 - [ ] RefreshKey pattern implemented for paginated queries
@@ -495,13 +443,13 @@ Before considering a hooks file complete:
 
 1. **Read the existing hooks file** to understand current implementation
 2. **Verify ApiClient exists** and all methods are available
-3. **Check validation schemas** in `src/validators/{entity}.js`
-4. **Replace file header** with standard format
-5. **Add proper imports** (React, useBaseHook, validators, ApiClient)
-6. **Create ApiClient instance** outside hooks
-7. **Implement query hooks** following patterns above
-8. **Implement mutation hooks** following patterns above
-9. **Add mutations collection hook**
+3. **Replace file header** with standard format
+4. **Add proper imports** (React, useBaseHook, ApiClient) - NO validators
+5. **Create ApiClient instance** outside hooks
+6. **Implement query hooks** following patterns above (NO validation code)
+7. **Implement mutation hooks** following patterns above (NO validation code)
+8. **Add mutations collection hook**
+9. **Verify NO validation code** - no schema imports, no validateWithSchema calls
 10. **Verify with get_errors** - must return "No errors found"
 11. **Update todo list** to mark entity complete
 
@@ -509,18 +457,21 @@ Before considering a hooks file complete:
 
 When user says "Refactor this hook":
 1. Read current hooks file
-2. Verify ApiClient and validators exist
-3. Replace entire file following patterns
-4. Verify compilation with `get_errors`
-5. Confirm success to user
+2. Verify ApiClient exists and has all required methods
+3. Replace entire file following patterns (NO validation code)
+4. Verify NO validation imports or code present
+5. Verify compilation with `get_errors`
+6. Confirm success to user
 
 ## Common Pitfalls to Avoid
 
+- ❌ Adding validation to hooks (validation = forms + API clients)
+- ❌ Importing Zod schemas into hooks files
+- ❌ Using `baseHook.validators.validateWithSchema` in hooks
 - ❌ Creating ApiClient instances inside hooks
-- ❌ Missing `useMemo` wrappers on validation or key generation
+- ❌ Missing `useMemo` wrappers on key generation
 - ❌ Inconsistent naming conventions
 - ❌ Missing cache invalidation on mutations
-- ❌ Forgetting FormData checks before validation
 - ❌ Using console.log instead of baseHook.logger
 - ❌ Missing refreshKey pattern on paginated queries
 - ❌ Not including all parameters in SWR keys
@@ -532,9 +483,10 @@ When user says "Refactor this hook":
 A hooks file is successfully refactored when:
 1. ✅ Follows User hooks pattern exactly
 2. ✅ All hooks use baseHook utilities
-3. ✅ Validation implemented correctly
-4. ✅ Cache management proper
-5. ✅ Error handling consistent
-6. ✅ get_errors returns "No errors found"
-7. ✅ All JSDoc complete
+3. ✅ NO validation code in hooks
+4. ✅ NO Zod schema imports
+5. ✅ Cache management proper
+6. ✅ Error handling consistent
+7. ✅ get_errors returns "No errors found"
+8. ✅ All JSDoc complete
 8. ✅ Naming conventions followed

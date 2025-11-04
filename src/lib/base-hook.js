@@ -106,49 +106,7 @@ export function useBaseHook(namespace = "BaseHook") {
     [logger]
   );
 
-  const validators = useMemo(
-    () => ({
-      /**
-       * Validate data using a Zod schema with proper error logging.
-       * @param {*} data - Data to validate
-       * @param {Object} schema - Zod schema to validate against
-       * @param {string} functionName - Name of the function being validated (for error logging)
-       * @param {boolean} [throwOnError=false] - Whether to throw an error on validation failure
-       * @returns {Object} Result object with success boolean and data/error
-       * @returns {boolean} returns.success - Whether validation passed
-       * @returns {*} returns.data - Validated data (if success is true)
-       * @returns {Object} returns.error - Zod error object (if success is false)
-       * @throws {Error} When validation fails and throwOnError is true
-       */
-      validateWithSchema(data, schema, functionName, throwOnError = false) {
-        try {
-          const result = schema.safeParse(data);
-          if (!result.success) {
-            logger.error(functionName, "Schema validation failed", {
-              errors: result.error.errors,
-              data: data ? "provided" : "missing",
-            });
-            if (throwOnError) {
-              throw new Error(
-                `Validation failed: ${result.error.errors[0]?.message || "Unknown error"}`
-              );
-            }
-          }
-          return result;
-        } catch (err) {
-          logger.error(functionName, "Schema validation error", {
-            error: err.message,
-            data: data ? "provided" : "missing",
-          });
-          if (throwOnError) {
-            throw err;
-          }
-          return { success: false, error: err };
-        }
-      },
-    }),
-    [logger]
-  );
+
 
   const utils = useMemo(
     () => ({
@@ -279,8 +237,6 @@ export function useBaseHook(namespace = "BaseHook") {
     logger,
     /** IndexedDB cache utilities */
     cacheUtils,
-    /** Zod schema validation utilities */
-    validators,
     /** General utility functions */
     utils,
     /** Hook for IndexedDB cache loading */

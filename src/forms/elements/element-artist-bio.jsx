@@ -26,8 +26,6 @@ import { toast } from 'src/components/snackbar';
 import { Field } from 'src/components/hook-form';
 import ErrorBoundary from 'src/components/error/error-boundary';
 
-import { useAuthToken } from 'src/auth/hooks/use-auth-token';
-
 /**
  * @memberof CityArtWalks.Forms.Elements.ArtistBio
  * @function ElementArtistBio
@@ -102,7 +100,6 @@ export function ElementArtistBio(props) {
   const [loading, setLoading] = useState(false);
   const [editorKey, setEditorKey] = useState(0); // Add key for forcing re-render
   const fieldOnChangeRef = useRef(null); // Store field onChange reference using ref
-  const { token } = useAuthToken(); // Get the auth token
 
   // Helper function to check if AI generation is available
   const isAIGenerationAvailable = () => {
@@ -158,13 +155,10 @@ export function ElementArtistBio(props) {
 
     setLoading(true);
     try {
-      const response = await generateArtistBiography(
-        {
-          artistName: sanitizedArtistName,
-          artPieces: currentArtist.ArtPiece,
-        },
-        token
-      );
+      const response = await generateArtistBiography({
+        artistName: sanitizedArtistName,
+        artPieces: currentArtist.ArtPiece,
+      });
 
       // Extract the biography from the response
       const biographyData = response?.biography || response?.data?.biography;
@@ -257,7 +251,7 @@ export function ElementArtistBio(props) {
 
   return (
     <ErrorBoundary>
-      <Stack spacing={1.5}>
+      <Stack spacing={1.5} sx={{mt:3}}>
         {/* Header with label and AI button */}
         <Box display="flex" alignItems="center" justifyContent="space-between">
           <Typography variant="subtitle2">{label}</Typography>
